@@ -53,9 +53,9 @@ pub enum TokenKind {
 
 #[derive(Debug)]
 pub struct Token {
-    kind: TokenKind,
-    lexeme: String,
-    line: u32,
+    pub kind: TokenKind,
+    pub lexeme: String,
+    pub line: u32,
 }
 
 impl Token {
