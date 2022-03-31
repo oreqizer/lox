@@ -1,0 +1,14 @@
+// this is a comment
+(( )){} // grouping stuff
+!*+-/=<> <= == // operators
+if 5 > 133 {
+    print "omg lol wtf";
+}
+
+class Kek {
+    lol = 1337;
+
+    init(v) {
+        lol = v;
+    }
+}

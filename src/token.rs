@@ -26,8 +26,7 @@ pub enum TokenKind {
     // Literals
     Identifier,
     String(String),
-    Int(i64),
-    Float(f64),
+    Number(f64),
 
     // Keywords
     And,

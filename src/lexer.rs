@@ -71,11 +71,21 @@ impl Lexer {
             '<' => Some(self.scan_operator(c, chars, Less)),
             '>' => Some(self.scan_operator(c, chars, Greater)),
 
+            // Division / Comment
+            '/' => self.scan_slash(chars),
+
+            // String
+            '"' => Some(self.scan_string(chars)),
+
             // Whitespace
-            ' ' => None,
-            '\t' => None,
-            '\r' => None,
+            ' ' | '\t' | '\r' => None,
             '\n' => { self.line += 1; None },
+
+            // Number
+            '0'..='9' => Some(Ok(self.scan_number(chars, c))),
+
+            // Identifier
+            'a'..='z' | 'A'..='Z' | '_' => Some(Ok(self.scan_identifier(chars, c))),
 
             // Unknown
             _ => Some(Err("Unexpected character".to_string())),
@@ -109,28 +119,104 @@ impl Lexer {
         }
     }
 
-    fn scan_identifier(&mut self, chars: &mut Chars, c: char) -> Result<Token, String> {
+    fn scan_slash(&mut self, chars: &mut Peekable<Chars>) -> Option<Result<Token, String>> {
         use TokenKind::*;
 
-        match c {
-            _ => Err("".to_string()),
+        if let Some('/') = chars.peek() {
+            self.advance(chars);
+
+            while let Some(&c) = chars.peek() {
+                if c == '\n' {
+                    break;
+                }
+
+                self.advance(chars);
+            }
+            None
+        } else {
+            self.lexeme.push('/');
+
+            Some(Ok(self.make_token(Slash)))
         }
     }
 
-    fn scan_number(&mut self, chars: &mut Chars, c: char) -> Result<Token, String> {
+    fn scan_string(&mut self, chars: &mut Peekable<Chars>) -> Result<Token, String> {
         use TokenKind::*;
 
-        match c {
-            _ => Err("".to_string()),
+        self.lexeme.push('"');
+        let mut value = "".to_string();
+
+        while let Some(&c) = chars.peek() {
+            self.advance(chars);
+
+            if c == '"' {
+                self.lexeme.push('"');
+
+                return Ok(self.make_token(String(value)));
+            }
+
+            value.push(c);
+            self.lexeme.push(c);
         }
+
+        Err("Unterminated string".to_string())
     }
 
-    fn scan_string(&mut self, chars: &mut Chars, c: char) -> Result<Token, String> {
+    fn scan_number(&mut self, chars: &mut Peekable<Chars>, c: char) -> Token {
         use TokenKind::*;
 
-        match c {
-            _ => Err("".to_string()),
+        self.lexeme.push(c);
+
+        while let Some(&c) = chars.peek() {
+            match c {
+                '0'..='9' | '.' => {
+                    self.advance(chars);
+                    self.lexeme.push(c);
+                },
+                _ => break,
+            }
         }
+
+        self.make_token(Number(self.lexeme.parse().unwrap()))
+    }
+
+    fn scan_identifier(&mut self, chars: &mut Peekable<Chars>, c: char) -> Token {
+        use TokenKind::*;
+
+        self.lexeme.push(c);
+
+        while let Some(&c) = chars.peek() {
+            match c {
+                'a'..='z' | 'A'..='Z' | '_' | '0'..='9' => {
+                    self.advance(chars);
+                    self.lexeme.push(c);
+                },
+                _ => break,
+            }
+        }
+
+        let kind = match self.lexeme.as_str() {
+            // Keywords
+            "and" => And,
+            "class" => Class,
+            "else" => Else,
+            "false" => False,
+            "fun" => Fun,
+            "for" => For,
+            "if" => If,
+            "nil" => Nil,
+            "or" => Or,
+            "print" => Print,
+            "return" => Return,
+            "super" => Super,
+            "this" => This,
+            "true" => True,
+            "var" => Var,
+            "while" => While,
+            _ => Identifier,
+        };
+
+        self.make_token(kind)
     }
 
     fn make_token(&self, kind: TokenKind) -> Token {
@@ -176,4 +262,6 @@ mod test {
             assert_eq!(token.kind, kind);
         }
     }
+
+    // TODO add remaining tests
 }

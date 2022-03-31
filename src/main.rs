@@ -47,7 +47,7 @@ fn repl() {
 fn main() {
     let mut args = std::env::args();
     if args.len() > 2 {
-        println!("Usage: Usage: rlox [script]");
+        println!("Usage: Usage: lox [script]");
         std::process::exit(64);
     }
 
