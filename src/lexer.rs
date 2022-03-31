@@ -26,17 +26,14 @@ impl Lexer {
         let mut errors = Vec::new();
 
         let mut chars = src.chars().into_iter().peekable();
-        while let Some(c) = chars.next() {
-            self.start = self.current;
-            self.current += 1;
-            self.lexeme.push(c);
-
+        while let Some(c) = self.advance(&mut chars) {
             if let Some(res) = self.scan_token(&mut chars, c) {
                 match res {
                     Ok(token) => tokens.push(token),
                     Err(e) => errors.push((self.line, e)),
                 };
 
+                self.start = self.current;
                 self.lexeme = String::new();
             }
         }
@@ -46,27 +43,33 @@ impl Lexer {
         (tokens, errors)
     }
 
+    fn advance(&mut self, chars: &mut Peekable<Chars>) -> Option<char> {
+        self.current += 1;
+
+        chars.next()
+    }
+
     fn scan_token(&mut self, chars: &mut Peekable<Chars>, c: char) -> Option<Result<Token, String>> {
         use TokenKind::*;
 
         match c {
             // Single character
-            '(' => Some(Ok(self.make_token(LeftParen))),
-            ')' => Some(Ok(self.make_token(RightParen))),
-            '{' => Some(Ok(self.make_token(LeftBrace))),
-            '}' => Some(Ok(self.make_token(RightBrace))),
-            ',' => Some(Ok(self.make_token(Comma))),
-            '.' => Some(Ok(self.make_token(Dot))),
-            '-' => Some(Ok(self.make_token(Minus))),
-            '+' => Some(Ok(self.make_token(Plus))),
-            ';' => Some(Ok(self.make_token(Semicolon))),
-            '*' => Some(Ok(self.make_token(Star))),
+            '(' => Some(Ok(self.scan_single(c, LeftParen))),
+            ')' => Some(Ok(self.scan_single(c, RightParen))),
+            '{' => Some(Ok(self.scan_single(c, LeftBrace))),
+            '}' => Some(Ok(self.scan_single(c, RightBrace))),
+            ',' => Some(Ok(self.scan_single(c, Comma))),
+            '.' => Some(Ok(self.scan_single(c, Dot))),
+            '-' => Some(Ok(self.scan_single(c, Minus))),
+            '+' => Some(Ok(self.scan_single(c, Plus))),
+            ';' => Some(Ok(self.scan_single(c, Semicolon))),
+            '*' => Some(Ok(self.scan_single(c, Star))),
 
             // Operators
-            '!' => Some(self.scan_operator(chars, Bang)),
-            '=' => Some(self.scan_operator(chars, Equal)),
-            '>' => Some(self.scan_operator(chars, Less)),
-            '<' => Some(self.scan_operator(chars, Greater)),
+            '!' => Some(self.scan_operator(c, chars, Bang)),
+            '=' => Some(self.scan_operator(c, chars, Equal)),
+            '<' => Some(self.scan_operator(c, chars, Less)),
+            '>' => Some(self.scan_operator(c, chars, Greater)),
 
             // Whitespace
             ' ' => None,
@@ -79,13 +82,19 @@ impl Lexer {
         }
     }
 
-    fn scan_operator(&mut self, chars: &mut Peekable<Chars>, base: TokenKind) -> Result<Token, String> {
+    fn scan_single(&mut self, c: char, kind: TokenKind) -> Token {
+        self.lexeme.push(c);
+
+        self.make_token(kind)
+    }
+
+    fn scan_operator(&mut self, c: char, chars: &mut Peekable<Chars>, base: TokenKind) -> Result<Token, String> {
         use TokenKind::*;
 
-        if let Some('=') = chars.peek() {
-            chars.next();
+        self.lexeme.push(c);
 
-            self.current += 1;
+        if let Some('=') = chars.peek() {
+            self.advance(chars);
             self.lexeme.push('=');
 
             match base {
@@ -126,5 +135,45 @@ impl Lexer {
 
     fn make_token(&self, kind: TokenKind) -> Token {
         Token::new(kind, self.lexeme.clone(), self.line)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn single_character() {
+        let pairs = [
+            // Single-character operators
+            ('(', TokenKind::LeftParen),
+            (')', TokenKind::RightParen),
+            ('{', TokenKind::LeftBrace),
+            ('}', TokenKind::RightBrace),
+            (',', TokenKind::Comma),
+            ('.', TokenKind::Dot),
+            ('-', TokenKind::Minus),
+            ('+', TokenKind::Plus),
+            (';', TokenKind::Semicolon),
+            ('*', TokenKind::Star),
+
+            // Operators followed by EOF
+            ('!', TokenKind::Bang),
+            ('=', TokenKind::Equal),
+            ('<', TokenKind::Less),
+            ('>', TokenKind::Greater),
+        ];
+
+        for (c, kind) in pairs {
+            let mut lexer = Lexer::new();
+            let (tokens, errors) = lexer.scan_tokens(c.to_string());
+
+            assert_eq!(errors.len(), 0);
+            assert_eq!(tokens.len(), 2);
+            
+            let token = &tokens[0];
+            
+            assert_eq!(token.kind, kind);
+        }
     }
 }
