@@ -244,9 +244,192 @@ mod test {
             
             let token = &tokens[0];
             
+            assert_eq!(token.line, 1);
             assert_eq!(token.kind, kind);
+            assert_eq!(token.lexeme, c.to_string());
         }
     }
 
-    // TODO add remaining tests
+    #[test]
+    fn double_character() {
+        let pairs = [
+            ("!=", TokenKind::BangEqual),
+            ("==", TokenKind::EqualEqual),
+            ("<=", TokenKind::LessEqual),
+            (">=", TokenKind::GreaterEqual),
+        ];
+
+        for (s, kind) in pairs {
+            let mut lexer = Lexer::new();
+            let (tokens, errors) = lexer.scan_tokens(s.to_string());
+
+            assert_eq!(errors.len(), 0);
+            assert_eq!(tokens.len(), 2);
+            
+            let token = &tokens[0];
+            
+            assert_eq!(token.line, 1);
+            assert_eq!(token.kind, kind);
+            assert_eq!(token.lexeme, s);
+        }
+    }
+
+    #[test]
+    fn division() {
+        let src = "/";
+
+        let expected = vec![
+            Token::new(TokenKind::Slash, "/".to_string(), 1),
+            Token::new(TokenKind::Eof, "".to_string(), 1),
+        ];
+
+        let mut lexer = Lexer::new();
+        let (tokens, errors) = lexer.scan_tokens(src.to_string());
+
+        assert_eq!(errors.len(), 0);
+        assert_eq!(tokens, expected);
+    }
+
+    #[test]
+    fn comment() {
+        let src = "// lol omg wtf";
+
+        let expected = vec![
+            Token::new(TokenKind::Eof, "".to_string(), 1),
+        ];
+
+        let mut lexer = Lexer::new();
+        let (tokens, errors) = lexer.scan_tokens(src.to_string());
+
+        assert_eq!(errors.len(), 0);
+        assert_eq!(tokens, expected);
+    }
+
+    #[test]
+    fn string() {
+        let src = r#""raw string""#;
+
+        let expected = vec![
+            Token::new(TokenKind::String("raw string".to_string()), r#""raw string""#.to_string(), 1),
+            Token::new(TokenKind::Eof, "".to_string(), 1),
+        ];
+
+        let mut lexer = Lexer::new();
+        let (tokens, errors) = lexer.scan_tokens(src.to_string());
+
+        assert_eq!(errors.len(), 0);
+        assert_eq!(tokens, expected);
+    }
+
+    #[test]
+    fn string_unterminated() {
+        let src = r#""bad string"#;
+
+        let expected = vec![
+            Token::new(TokenKind::Eof, "".to_string(), 1),
+        ];
+        let expected_errors = vec![
+            (1, "Unterminated string".to_string()),
+        ];
+
+        let mut lexer = Lexer::new();
+        let (tokens, errors) = lexer.scan_tokens(src.to_string());
+
+        assert_eq!(errors, expected_errors);
+        assert_eq!(tokens, expected);
+    }
+
+    #[test]
+    fn number_int() {
+        let src = "1337";
+
+        let expected = vec![
+            Token::new(TokenKind::Number(1337.0), "1337".to_string(), 1),
+            Token::new(TokenKind::Eof, "".to_string(), 1),
+        ];
+
+        let mut lexer = Lexer::new();
+        let (tokens, errors) = lexer.scan_tokens(src.to_string());
+
+        assert_eq!(errors.len(), 0);
+        assert_eq!(tokens, expected);
+    }
+
+    #[test]
+    fn number_float() {
+        let src = "13.37";
+
+        let expected = vec![
+            Token::new(TokenKind::Number(13.37), "13.37".to_string(), 1),
+            Token::new(TokenKind::Eof, "".to_string(), 1),
+        ];
+
+        let mut lexer = Lexer::new();
+        let (tokens, errors) = lexer.scan_tokens(src.to_string());
+
+        assert_eq!(errors.len(), 0);
+        assert_eq!(tokens, expected);
+    }
+
+    #[test]
+    fn number_dangling_dot() {
+        let src = "1337.";
+
+        let expected = vec![
+            Token::new(TokenKind::Number(1337.0), "1337.".to_string(), 1),
+            Token::new(TokenKind::Eof, "".to_string(), 1),
+        ];
+
+        let mut lexer = Lexer::new();
+        let (tokens, errors) = lexer.scan_tokens(src.to_string());
+
+        assert_eq!(errors.len(), 0);
+        assert_eq!(tokens, expected);
+    }
+
+    #[test]
+    fn identifiers() {
+        let pairs = [
+            // Keywords
+            ("and", TokenKind::And),
+            ("class", TokenKind::Class),
+            ("else", TokenKind::Else),
+            ("false", TokenKind::False),
+            ("fun", TokenKind::Fun),
+            ("for", TokenKind::For),
+            ("if", TokenKind::If),
+            ("nil", TokenKind::Nil),
+            ("or", TokenKind::Or),
+            ("print", TokenKind::Print),
+            ("return", TokenKind::Return),
+            ("super", TokenKind::Super),
+            ("this", TokenKind::This),
+            ("true", TokenKind::True),
+            ("var", TokenKind::Var),
+            ("while", TokenKind::While),
+
+            // Identifiers
+            ("_", TokenKind::Identifier),
+            ("a", TokenKind::Identifier),
+            ("A", TokenKind::Identifier),
+            ("_asd_", TokenKind::Identifier),
+            ("_as1347d", TokenKind::Identifier),
+            ("as1347d", TokenKind::Identifier),
+            ("As1347d", TokenKind::Identifier),
+        ];
+
+        for (s, kind) in pairs {
+            let mut lexer = Lexer::new();
+            let (tokens, errors) = lexer.scan_tokens(s.to_string());
+
+            assert_eq!(errors.len(), 0);
+            assert_eq!(tokens.len(), 2);
+            
+            let token = &tokens[0];
+            
+            assert_eq!(token.line, 1);
+            assert_eq!(token.kind, kind);
+            assert_eq!(token.lexeme, s.to_string());
+        }
+    }
 }
