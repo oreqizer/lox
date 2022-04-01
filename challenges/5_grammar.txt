@@ -1,0 +1,20 @@
+expr → expr ( "(" ( expr ( "," expr )* )? ")" | "." IDENTIFIER )+
+     | IDENTIFIER
+     | NUMBER
+
+expr → expr parendchain
+expr → expr dotter
+expr → IDENTIFIER
+expr → NUMBER
+
+parend → "()"
+parend → "(" exprs ")"
+
+parendchain → parend
+parendchain → parendchain parend
+
+dotter → "." IDENTIFIER
+dotter → dotter "." IDENTIFIER
+
+exprs → expr
+exprs → expr "," expr

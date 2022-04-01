@@ -5,8 +5,6 @@ use crate::token::{Token, TokenKind};
 pub type Error = (u32, String);
 
 pub struct Lexer {
-    start: u32,
-    current: u32,
     lexeme: String,
     line: u32,
 }
@@ -14,8 +12,6 @@ pub struct Lexer {
 impl Lexer {
     pub fn new() -> Self {
         Self {
-            start: 0,
-            current: 0,
             lexeme: String::new(),
             line: 1,
         }
@@ -26,27 +22,20 @@ impl Lexer {
         let mut errors = Vec::new();
 
         let mut chars = src.chars().into_iter().peekable();
-        while let Some(c) = self.advance(&mut chars) {
+        while let Some(c) = chars.next() {
             if let Some(res) = self.scan_token(&mut chars, c) {
                 match res {
                     Ok(token) => tokens.push(token),
                     Err(e) => errors.push((self.line, e)),
                 };
 
-                self.start = self.current;
-                self.lexeme = String::new();
+                self.lexeme.clear();
             }
         }
 
         tokens.push(Token::new(TokenKind::Eof, "".to_string(), self.line));
 
         (tokens, errors)
-    }
-
-    fn advance(&mut self, chars: &mut Peekable<Chars>) -> Option<char> {
-        self.current += 1;
-
-        chars.next()
     }
 
     fn scan_token(&mut self, chars: &mut Peekable<Chars>, c: char) -> Option<Result<Token, String>> {
@@ -92,6 +81,12 @@ impl Lexer {
         }
     }
 
+    fn write_next(&mut self, chars: &mut Peekable<Chars>) {
+        if let Some(c) = chars.next() {
+            self.lexeme.push(c);
+        }
+    }
+
     fn scan_single(&mut self, c: char, kind: TokenKind) -> Token {
         self.lexeme.push(c);
 
@@ -104,8 +99,7 @@ impl Lexer {
         self.lexeme.push(c);
 
         if let Some('=') = chars.peek() {
-            self.advance(chars);
-            self.lexeme.push('=');
+            self.write_next(chars);
 
             match base {
                 Bang => Ok(self.make_token(BangEqual)),
@@ -123,14 +117,14 @@ impl Lexer {
         use TokenKind::*;
 
         if let Some('/') = chars.peek() {
-            self.advance(chars);
+            chars.next();
 
             while let Some(&c) = chars.peek() {
                 if c == '\n' {
                     break;
                 }
 
-                self.advance(chars);
+                chars.next();
             }
             None
         } else {
@@ -147,16 +141,13 @@ impl Lexer {
         let mut value = "".to_string();
 
         while let Some(&c) = chars.peek() {
-            self.advance(chars);
+            self.write_next(chars);
 
             if c == '"' {
-                self.lexeme.push('"');
-
                 return Ok(self.make_token(String(value)));
             }
 
             value.push(c);
-            self.lexeme.push(c);
         }
 
         Err("Unterminated string".to_string())
@@ -169,10 +160,7 @@ impl Lexer {
 
         while let Some(&c) = chars.peek() {
             match c {
-                '0'..='9' | '.' => {
-                    self.advance(chars);
-                    self.lexeme.push(c);
-                },
+                '0'..='9' | '.' => self.write_next(chars),
                 _ => break,
             }
         }
@@ -187,10 +175,7 @@ impl Lexer {
 
         while let Some(&c) = chars.peek() {
             match c {
-                'a'..='z' | 'A'..='Z' | '_' | '0'..='9' => {
-                    self.advance(chars);
-                    self.lexeme.push(c);
-                },
+                'a'..='z' | 'A'..='Z' | '_' | '0'..='9' => self.write_next(chars),
                 _ => break,
             }
         }
