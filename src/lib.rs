@@ -1,4 +1,5 @@
 mod lexer;
-mod token;
+mod parser;
 
 pub use lexer::{Lexer, Error};
+pub use parser::{Parser};

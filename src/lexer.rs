@@ -1,29 +1,97 @@
-use std::{str::Chars, iter::Peekable};
+use std::{iter::Peekable, str::Chars};
 
-use crate::token::{Token, TokenKind};
+#[derive(Debug, Clone, PartialEq)]
+pub enum TokenKind {
+    // Single-character tokens
+    LeftParen,
+    RightParen,
+    LeftBrace,
+    RightBrace,
+    Comma,
+    Dot,
+    Minus,
+    Plus,
+    Semicolon,
+    Slash,
+    Star,
 
-pub type Error = (u32, String);
+    // One or two character tokens
+    Bang,
+    BangEqual,
+    Equal,
+    EqualEqual,
+    Greater,
+    GreaterEqual,
+    Less,
+    LessEqual,
 
-pub struct Lexer {
+    // Literals
+    Identifier,
+    String(String),
+    Number(f64),
+
+    // Keywords
+    And,
+    Class,
+    Else,
+    False,
+    Fun,
+    For,
+    If,
+    Nil,
+    Or,
+    Print,
+    Return,
+    Super,
+    This,
+    True,
+    Var,
+    While,
+
+    // EOF
+    Eof,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Token {
+    kind: TokenKind,
     lexeme: String,
     line: u32,
 }
 
-impl Lexer {
-    pub fn new() -> Self {
+impl Token {
+    pub fn new(kind: TokenKind, lexeme: String, line: u32) -> Self {
+        Self { kind, lexeme, line }
+    }
+
+    pub fn kind(&self) -> &TokenKind {
+        &self.kind
+    }
+}
+
+pub type Error = (u32, String);
+
+pub struct Lexer<'a> {
+    chars: Peekable<Chars<'a>>,
+    lexeme: String,
+    line: u32,
+}
+
+impl<'a> Lexer<'a> {
+    pub fn new(src: &'a str) -> Self {
         Self {
+            chars: src.chars().into_iter().peekable(),
             lexeme: String::new(),
             line: 1,
         }
     }
 
-    pub fn scan_tokens(&mut self, src: String) -> (Vec<Token>, Vec<Error>) {
+    pub fn scan_tokens(&mut self) -> (Vec<Token>, Vec<Error>) {
         let mut tokens = Vec::new();
         let mut errors = Vec::new();
 
-        let mut chars = src.chars().into_iter().peekable();
-        while let Some(c) = chars.next() {
-            if let Some(res) = self.scan_token(&mut chars, c) {
+        while let Some(c) = self.chars.next() {
+            if let Some(res) = self.scan_token(c) {
                 match res {
                     Ok(token) => tokens.push(token),
                     Err(e) => errors.push((self.line, e)),
@@ -38,7 +106,8 @@ impl Lexer {
         (tokens, errors)
     }
 
-    fn scan_token(&mut self, chars: &mut Peekable<Chars>, c: char) -> Option<Result<Token, String>> {
+    #[inline]
+    fn scan_token(&mut self, c: char) -> Option<Result<Token, String>> {
         use TokenKind::*;
 
         match c {
@@ -55,51 +124,57 @@ impl Lexer {
             '*' => Some(Ok(self.scan_single(c, Star))),
 
             // Operators
-            '!' => Some(self.scan_operator(c, chars, Bang)),
-            '=' => Some(self.scan_operator(c, chars, Equal)),
-            '<' => Some(self.scan_operator(c, chars, Less)),
-            '>' => Some(self.scan_operator(c, chars, Greater)),
+            '!' => Some(self.scan_operator(c, Bang)),
+            '=' => Some(self.scan_operator(c, Equal)),
+            '<' => Some(self.scan_operator(c, Less)),
+            '>' => Some(self.scan_operator(c, Greater)),
 
             // Division / Comment
-            '/' => self.scan_slash(chars),
+            '/' => self.scan_slash(),
 
             // String
-            '"' => Some(self.scan_string(chars)),
+            '"' => Some(self.scan_string()),
 
             // Whitespace
             ' ' | '\t' | '\r' => None,
-            '\n' => { self.line += 1; None },
+            '\n' => {
+                self.line += 1;
+                None
+            }
 
             // Number
-            '0'..='9' => Some(Ok(self.scan_number(chars, c))),
+            '0'..='9' => Some(Ok(self.scan_number(c))),
 
             // Identifier
-            'a'..='z' | 'A'..='Z' | '_' => Some(Ok(self.scan_identifier(chars, c))),
+            'a'..='z' | 'A'..='Z' | '_' => Some(Ok(self.scan_identifier(c))),
 
             // Unknown
             _ => Some(Err("Unexpected character".to_string())),
         }
     }
 
-    fn write_next(&mut self, chars: &mut Peekable<Chars>) {
-        if let Some(c) = chars.next() {
+    #[inline]
+    fn write_next(&mut self) {
+        if let Some(c) = self.chars.next() {
             self.lexeme.push(c);
         }
     }
 
+    #[inline]
     fn scan_single(&mut self, c: char, kind: TokenKind) -> Token {
         self.lexeme.push(c);
 
         self.make_token(kind)
     }
 
-    fn scan_operator(&mut self, c: char, chars: &mut Peekable<Chars>, base: TokenKind) -> Result<Token, String> {
+    #[inline]
+    fn scan_operator(&mut self, c: char, base: TokenKind) -> Result<Token, String> {
         use TokenKind::*;
 
         self.lexeme.push(c);
 
-        if let Some('=') = chars.peek() {
-            self.write_next(chars);
+        if let Some('=') = self.chars.peek() {
+            self.write_next();
 
             match base {
                 Bang => Ok(self.make_token(BangEqual)),
@@ -113,18 +188,19 @@ impl Lexer {
         }
     }
 
-    fn scan_slash(&mut self, chars: &mut Peekable<Chars>) -> Option<Result<Token, String>> {
+    #[inline]
+    fn scan_slash(&mut self) -> Option<Result<Token, String>> {
         use TokenKind::*;
 
-        if let Some('/') = chars.peek() {
-            chars.next();
+        if let Some('/') = self.chars.peek() {
+            self.chars.next();
 
-            while let Some(&c) = chars.peek() {
+            while let Some(&c) = self.chars.peek() {
                 if c == '\n' {
                     break;
                 }
 
-                chars.next();
+                self.chars.next();
             }
             None
         } else {
@@ -134,14 +210,15 @@ impl Lexer {
         }
     }
 
-    fn scan_string(&mut self, chars: &mut Peekable<Chars>) -> Result<Token, String> {
+    #[inline]
+    fn scan_string(&mut self) -> Result<Token, String> {
         use TokenKind::*;
 
         self.lexeme.push('"');
         let mut value = "".to_string();
 
-        while let Some(&c) = chars.peek() {
-            self.write_next(chars);
+        while let Some(&c) = self.chars.peek() {
+            self.write_next();
 
             if c == '"' {
                 return Ok(self.make_token(String(value)));
@@ -153,14 +230,15 @@ impl Lexer {
         Err("Unterminated string".to_string())
     }
 
-    fn scan_number(&mut self, chars: &mut Peekable<Chars>, c: char) -> Token {
+    #[inline]
+    fn scan_number(&mut self, c: char) -> Token {
         use TokenKind::*;
 
         self.lexeme.push(c);
 
-        while let Some(&c) = chars.peek() {
+        while let Some(&c) = self.chars.peek() {
             match c {
-                '0'..='9' | '.' => self.write_next(chars),
+                '0'..='9' | '.' => self.write_next(),
                 _ => break,
             }
         }
@@ -168,14 +246,15 @@ impl Lexer {
         self.make_token(Number(self.lexeme.parse().unwrap()))
     }
 
-    fn scan_identifier(&mut self, chars: &mut Peekable<Chars>, c: char) -> Token {
+    #[inline]
+    fn scan_identifier(&mut self, c: char) -> Token {
         use TokenKind::*;
 
         self.lexeme.push(c);
 
-        while let Some(&c) = chars.peek() {
+        while let Some(&c) = self.chars.peek() {
             match c {
-                'a'..='z' | 'A'..='Z' | '_' | '0'..='9' => self.write_next(chars),
+                'a'..='z' | 'A'..='Z' | '_' | '0'..='9' => self.write_next(),
                 _ => break,
             }
         }
@@ -204,6 +283,7 @@ impl Lexer {
         self.make_token(kind)
     }
 
+    #[inline]
     fn make_token(&self, kind: TokenKind) -> Token {
         Token::new(kind, self.lexeme.clone(), self.line)
     }
@@ -227,7 +307,6 @@ mod test {
             ('+', TokenKind::Plus),
             (';', TokenKind::Semicolon),
             ('*', TokenKind::Star),
-
             // Operators followed by EOF
             ('!', TokenKind::Bang),
             ('=', TokenKind::Equal),
@@ -236,14 +315,15 @@ mod test {
         ];
 
         for (c, kind) in pairs {
-            let mut lexer = Lexer::new();
-            let (tokens, errors) = lexer.scan_tokens(c.to_string());
+            let s = c.to_string();
+            let mut lexer = Lexer::new(&s);
+            let (tokens, errors) = lexer.scan_tokens();
 
             assert_eq!(errors.len(), 0);
             assert_eq!(tokens.len(), 2);
-            
+
             let token = &tokens[0];
-            
+
             assert_eq!(token.line, 1);
             assert_eq!(token.kind, kind);
             assert_eq!(token.lexeme, c.to_string());
@@ -260,14 +340,14 @@ mod test {
         ];
 
         for (s, kind) in pairs {
-            let mut lexer = Lexer::new();
-            let (tokens, errors) = lexer.scan_tokens(s.to_string());
+            let mut lexer = Lexer::new(s);
+            let (tokens, errors) = lexer.scan_tokens();
 
             assert_eq!(errors.len(), 0);
             assert_eq!(tokens.len(), 2);
-            
+
             let token = &tokens[0];
-            
+
             assert_eq!(token.line, 1);
             assert_eq!(token.kind, kind);
             assert_eq!(token.lexeme, s);
@@ -283,8 +363,8 @@ mod test {
             Token::new(TokenKind::Eof, "".to_string(), 1),
         ];
 
-        let mut lexer = Lexer::new();
-        let (tokens, errors) = lexer.scan_tokens(src.to_string());
+        let mut lexer = Lexer::new(src);
+        let (tokens, errors) = lexer.scan_tokens();
 
         assert_eq!(errors.len(), 0);
         assert_eq!(tokens, expected);
@@ -294,12 +374,10 @@ mod test {
     fn comment() {
         let src = "// lol omg wtf";
 
-        let expected = vec![
-            Token::new(TokenKind::Eof, "".to_string(), 1),
-        ];
+        let expected = vec![Token::new(TokenKind::Eof, "".to_string(), 1)];
 
-        let mut lexer = Lexer::new();
-        let (tokens, errors) = lexer.scan_tokens(src.to_string());
+        let mut lexer = Lexer::new(src);
+        let (tokens, errors) = lexer.scan_tokens();
 
         assert_eq!(errors.len(), 0);
         assert_eq!(tokens, expected);
@@ -310,12 +388,16 @@ mod test {
         let src = r#""raw string""#;
 
         let expected = vec![
-            Token::new(TokenKind::String("raw string".to_string()), r#""raw string""#.to_string(), 1),
+            Token::new(
+                TokenKind::String("raw string".to_string()),
+                r#""raw string""#.to_string(),
+                1,
+            ),
             Token::new(TokenKind::Eof, "".to_string(), 1),
         ];
 
-        let mut lexer = Lexer::new();
-        let (tokens, errors) = lexer.scan_tokens(src.to_string());
+        let mut lexer = Lexer::new(src);
+        let (tokens, errors) = lexer.scan_tokens();
 
         assert_eq!(errors.len(), 0);
         assert_eq!(tokens, expected);
@@ -325,15 +407,11 @@ mod test {
     fn string_unterminated() {
         let src = r#""bad string"#;
 
-        let expected = vec![
-            Token::new(TokenKind::Eof, "".to_string(), 1),
-        ];
-        let expected_errors = vec![
-            (1, "Unterminated string".to_string()),
-        ];
+        let expected = vec![Token::new(TokenKind::Eof, "".to_string(), 1)];
+        let expected_errors = vec![(1, "Unterminated string".to_string())];
 
-        let mut lexer = Lexer::new();
-        let (tokens, errors) = lexer.scan_tokens(src.to_string());
+        let mut lexer = Lexer::new(src);
+        let (tokens, errors) = lexer.scan_tokens();
 
         assert_eq!(errors, expected_errors);
         assert_eq!(tokens, expected);
@@ -348,8 +426,8 @@ mod test {
             Token::new(TokenKind::Eof, "".to_string(), 1),
         ];
 
-        let mut lexer = Lexer::new();
-        let (tokens, errors) = lexer.scan_tokens(src.to_string());
+        let mut lexer = Lexer::new(src);
+        let (tokens, errors) = lexer.scan_tokens();
 
         assert_eq!(errors.len(), 0);
         assert_eq!(tokens, expected);
@@ -364,8 +442,8 @@ mod test {
             Token::new(TokenKind::Eof, "".to_string(), 1),
         ];
 
-        let mut lexer = Lexer::new();
-        let (tokens, errors) = lexer.scan_tokens(src.to_string());
+        let mut lexer = Lexer::new(src);
+        let (tokens, errors) = lexer.scan_tokens();
 
         assert_eq!(errors.len(), 0);
         assert_eq!(tokens, expected);
@@ -380,8 +458,8 @@ mod test {
             Token::new(TokenKind::Eof, "".to_string(), 1),
         ];
 
-        let mut lexer = Lexer::new();
-        let (tokens, errors) = lexer.scan_tokens(src.to_string());
+        let mut lexer = Lexer::new(src);
+        let (tokens, errors) = lexer.scan_tokens();
 
         assert_eq!(errors.len(), 0);
         assert_eq!(tokens, expected);
@@ -407,7 +485,6 @@ mod test {
             ("true", TokenKind::True),
             ("var", TokenKind::Var),
             ("while", TokenKind::While),
-
             // Identifiers
             ("_", TokenKind::Identifier),
             ("a", TokenKind::Identifier),
@@ -419,14 +496,14 @@ mod test {
         ];
 
         for (s, kind) in pairs {
-            let mut lexer = Lexer::new();
-            let (tokens, errors) = lexer.scan_tokens(s.to_string());
+            let mut lexer = Lexer::new(s);
+            let (tokens, errors) = lexer.scan_tokens();
 
             assert_eq!(errors.len(), 0);
             assert_eq!(tokens.len(), 2);
-            
+
             let token = &tokens[0];
-            
+
             assert_eq!(token.line, 1);
             assert_eq!(token.kind, kind);
             assert_eq!(token.lexeme, s.to_string());

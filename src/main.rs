@@ -4,8 +4,8 @@ use lox::{Error, Lexer};
 
 // TODO replace () with eval value
 fn run(src: String) -> Result<(), Vec<Error>> {
-    let mut lexer = Lexer::new();
-    let (tokens, errors) = lexer.scan_tokens(src);
+    let mut lexer = Lexer::new(&src);
+    let (tokens, errors) = lexer.scan_tokens();
 
     for token in tokens {
         println!("{:?}", token);
