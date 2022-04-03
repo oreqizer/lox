@@ -1,21 +1,34 @@
 use std::io::Write;
 
-use lox::{Error, Lexer};
+use lox::{Lexer, Parser};
 
-// TODO replace () with eval value
-fn run(src: String) -> Result<(), Vec<Error>> {
+fn run(src: String) -> Result<(), String> {
     let mut lexer = Lexer::new(&src);
     let (tokens, errors) = lexer.scan_tokens();
 
-    for token in tokens {
-        println!("{:?}", token);
+    if errors.len() > 0 {
+        // TODO properly handle errors:
+        // 1. create a global "Error" type with line information and string
+        // 2. print errors as soon as lexing is done
+        // 3. call parser after lexing, overwriting errors
+        // 4. print further errors after parsing is done
+        return Err(errors
+            .iter()
+            .map(|(line, text)| format!("Line {} | {}", line, text))
+            .reduce(|acc, next| format!("{}\n{}", acc, next))
+            .unwrap());
     }
 
-    if errors.len() > 0 {
-        Err(errors)
-    } else {
-        Ok(())
+    for t in &tokens {
+        println!("{:?}", t);
     }
+
+    let mut parser = Parser::new(&tokens);
+    let expr = parser.parse()?;
+
+    println!("{}", expr);
+
+    Ok(())
 }
 
 fn error(line: u32, loc: &str, msg: &str) {
@@ -35,11 +48,7 @@ fn repl() {
 
         match run(line) {
             Ok(()) => println!("Ok"),
-            Err(e) => {
-                for (line, err) in e {
-                    error(line, "", &err);
-                }
-            }
+            Err(ref e) => println!("Syntax error: {}", e),
         }
     }
 }
@@ -54,10 +63,8 @@ fn main() {
     if let Some(file) = args.nth(1) {
         let src = std::fs::read_to_string(file).expect("failed to read source file");
 
-        if let Err(e) = run(src) {
-            for (line, err) in e {
-                error(line, "", &err);
-            }
+        if let Err(ref e) = run(src) {
+            println!("Syntax error: {}", e);
             std::process::exit(65);
         }
     } else {

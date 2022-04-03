@@ -1,9 +1,14 @@
-use std::{iter::Peekable, rc::Rc, slice::Iter};
+use std::{fmt, iter::Peekable, rc::Rc, slice::Iter};
 
 use crate::lexer::{Token, TokenKind};
 
 #[derive(Debug, PartialEq)]
 pub enum Expr {
+    Boolean(bool),
+    Nil,
+    Number(f64),
+    String(String),
+    Grouping(Rc<Expr>),
     Unary {
         operator: Token,
         right: Rc<Expr>,
@@ -13,11 +18,26 @@ pub enum Expr {
         operator: Token,
         right: Rc<Expr>,
     },
-    Boolean(bool),
-    Nil,
-    Number(f64),
-    String(String),
-    Grouping(Rc<Expr>),
+}
+
+impl fmt::Display for Expr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        use Expr::*;
+
+        match self {
+            Boolean(b) => write!(f, "{}", b),
+            Nil => write!(f, "nil"),
+            Number(n) => write!(f, "{}", n),
+            String(ref s) => write!(f, "{}", s),
+            Grouping(expr) => write!(f, "({})", expr),
+            Unary { operator, right } => write!(f, "{}{}", operator, right),
+            Binary {
+                left,
+                operator,
+                right,
+            } => write!(f, "({} {} {})", left, operator, right),
+        }
+    }
 }
 
 pub struct Parser<'a> {
@@ -25,9 +45,35 @@ pub struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
-    fn new(tokens: &'a [Token]) -> Self {
+    pub fn new(tokens: &'a [Token]) -> Self {
         Self {
             tokens: tokens.iter().peekable(),
+        }
+    }
+
+    pub fn parse(&mut self) -> Result<Expr, String> {
+        self.expression()
+    }
+
+    fn synchronize(&mut self) {
+        use TokenKind::*;
+
+        while let Some(token) = self.tokens.next() {
+            if let Semicolon = token.kind() {
+                return;
+            };
+
+            match self.tokens.peek().map(|t| t.kind()) {
+                Some(Class) => return,
+                Some(Fun) => return,
+                Some(Var) => return,
+                Some(For) => return,
+                Some(If) => return,
+                Some(While) => return,
+                Some(Print) => return,
+                Some(Return) => return,
+                _ => (),
+            };
         }
     }
 
@@ -38,7 +84,7 @@ impl<'a> Parser<'a> {
     fn match_token(&mut self, kinds: &[TokenKind]) -> Option<&Token> {
         if let Some(&e) = self.tokens.peek() {
             if kinds.iter().any(|&k| k == e.kind()) {
-                return self.tokens.next()
+                return self.tokens.next();
             }
         }
 
@@ -46,7 +92,11 @@ impl<'a> Parser<'a> {
     }
 
     #[inline]
-    fn make_binary(&mut self, kinds: &[TokenKind], gen: impl Fn(&mut Self) -> Result<Expr, String>) -> Result<Expr, String> {
+    fn make_binary(
+        &mut self,
+        kinds: &[TokenKind],
+        gen: impl Fn(&mut Self) -> Result<Expr, String>,
+    ) -> Result<Expr, String> {
         let mut expr = gen(self)?;
 
         while let Some(op) = self.match_token(kinds) {
@@ -68,10 +118,10 @@ impl<'a> Parser<'a> {
     }
 
     #[inline]
-    fn next_assert(&mut self, kind: TokenKind, msg: &str) -> Result<(), String> {
+    fn next_assert(&mut self, kind: TokenKind, msg: &str) -> Result<&Token, String> {
         if let Some(&e) = self.tokens.peek() {
             if e.kind() == kind {
-                return Ok(());
+                return Ok(self.tokens.next().unwrap());
             }
         }
 
@@ -148,7 +198,7 @@ impl<'a> Parser<'a> {
                     self.next_assert(RightParen, "Expect ')' after expression")?;
 
                     Ok(Expr::Grouping(Rc::new(expr)))
-                },
+                }
                 _ => Err("Not implemented yet".to_string()),
             };
         }

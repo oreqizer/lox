@@ -1,4 +1,4 @@
-use std::{iter::Peekable, str::Chars};
+use std::{fmt, iter::Peekable, str::Chars};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Literal {
@@ -92,6 +92,12 @@ impl Token {
             Some(Literal::String(ref s)) => s.clone(),
             _ => "".to_string(),
         }
+    }
+}
+
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", &self.lexeme)
     }
 }
 
