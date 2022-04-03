@@ -13,6 +13,11 @@ pub enum Expr {
         operator: Token,
         right: Rc<Expr>,
     },
+    Boolean(bool),
+    Nil,
+    Number(f64),
+    String(String),
+    Grouping(Rc<Expr>),
 }
 
 pub struct Parser<'a> {
@@ -29,21 +34,41 @@ impl<'a> Parser<'a> {
     // HELPERS
     // =======
 
+    fn match_token(&mut self, kinds: &[TokenKind]) -> Option<&Token> {
+        if let Some(&e) = self.tokens.peek() {
+            if kinds.iter().any(|&k| k == e.kind()) {
+                return self.tokens.next()
+            }
+        }
+
+        None
+    }
+
+    fn next_ok(&mut self, expr: Expr) -> Result<Expr, String> {
+        self.tokens.next();
+
+        Ok(expr)
+    }
+
+    fn next_assert(&mut self, kind: TokenKind, msg: &str) -> Result<(), String> {
+        if let Some(&e) = self.tokens.peek() {
+            if e.kind() == kind {
+                return Ok(());
+            }
+        }
+
+        Err(msg.to_string())
+    }
+
     fn make_binary(&mut self, kinds: &[TokenKind], gen: impl Fn(&mut Self) -> Result<Expr, String>) -> Result<Expr, String> {
         let mut expr = gen(self)?;
 
-        while let Some(&e) = self.tokens.peek() {
-            if !kinds.iter().any(|k| k == e.kind()) {
-                break;
-            }
-
-            if let Some(op) = self.tokens.next() {
-                expr = Expr::Binary {
-                    left: Rc::new(expr),
-                    operator: op.clone(),
-                    right: Rc::new(gen(self)?),
-                };
-            }
+        while let Some(op) = self.match_token(kinds) {
+            expr = Expr::Binary {
+                left: Rc::new(expr),
+                operator: op.clone(),
+                right: Rc::new(gen(self)?),
+            };
         }
 
         Ok(expr)
@@ -96,21 +121,14 @@ impl<'a> Parser<'a> {
     fn unary(&mut self) -> Result<Expr, String> {
         use TokenKind::*;
 
-        while let Some(&e) = self.tokens.peek() {
-            let op = match e.kind() {
-                Bang | Minus => self.tokens.next(),
-                _ => None,
-            };
-
-            if let Some(op) = op {
-                return Ok(Expr::Unary {
-                    operator: op.clone(),
-                    right: Rc::new(self.unary()?),
-                })
-            }
+        if let Some(op) = self.match_token(&[Bang, Minus]) {
+            Ok(Expr::Unary {
+                operator: op.clone(),
+                right: Rc::new(self.unary()?),
+            })
+        } else {
+            self.primary()
         }
-
-        self.primary()
     }
 
     // primary → NUMBER | STRING | "true" | "false" | "nil"
@@ -119,6 +137,25 @@ impl<'a> Parser<'a> {
     fn primary(&mut self) -> Result<Expr, String> {
         use TokenKind::*;
 
-        Err("not implemented".to_string())
+        if let Some(&token) = self.tokens.peek() {
+            return match token.kind() {
+                False => self.next_ok(Expr::Boolean(false)),
+                True => self.next_ok(Expr::Boolean(true)),
+                Nil => self.next_ok(Expr::Nil),
+                Number => self.next_ok(Expr::Number(token.literal_number())),
+                String => self.next_ok(Expr::String(token.literal_string())),
+                LeftParen => {
+                    self.tokens.next();
+
+                    let expr = self.expression()?;
+                    self.next_assert(RightParen, "Expect ')' after expression")?;
+
+                    Ok(Expr::Grouping(Rc::new(expr)))
+                },
+                _ => Err("Not implemented yet".to_string()),
+            };
+        }
+
+        Err("Not implemented yet".to_string())
     }
 }

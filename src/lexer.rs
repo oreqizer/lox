@@ -1,6 +1,12 @@
 use std::{iter::Peekable, str::Chars};
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum Literal {
+    Number(f64),
+    String(String),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum TokenKind {
     // Single-character tokens
     LeftParen,
@@ -27,8 +33,8 @@ pub enum TokenKind {
 
     // Literals
     Identifier,
-    String(String),
-    Number(f64),
+    String,
+    Number,
 
     // Keywords
     And,
@@ -55,17 +61,37 @@ pub enum TokenKind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     kind: TokenKind,
+    literal: Option<Literal>,
     lexeme: String,
     line: u32,
 }
 
 impl Token {
-    pub fn new(kind: TokenKind, lexeme: String, line: u32) -> Self {
-        Self { kind, lexeme, line }
+    pub fn new(kind: TokenKind, literal: Option<Literal>, lexeme: String, line: u32) -> Self {
+        Self {
+            kind,
+            literal,
+            lexeme,
+            line,
+        }
     }
 
-    pub fn kind(&self) -> &TokenKind {
-        &self.kind
+    pub fn kind(&self) -> TokenKind {
+        self.kind
+    }
+
+    pub fn literal_number(&self) -> f64 {
+        match self.literal {
+            Some(Literal::Number(f)) => f,
+            _ => 0.0,
+        }
+    }
+
+    pub fn literal_string(&self) -> String {
+        match self.literal {
+            Some(Literal::String(ref s)) => s.clone(),
+            _ => "".to_string(),
+        }
     }
 }
 
@@ -101,7 +127,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        tokens.push(Token::new(TokenKind::Eof, "".to_string(), self.line));
+        tokens.push(Token::new(TokenKind::Eof, None, "".to_string(), self.line));
 
         (tokens, errors)
     }
@@ -221,7 +247,7 @@ impl<'a> Lexer<'a> {
             self.write_next();
 
             if c == '"' {
-                return Ok(self.make_token(String(value)));
+                return Ok(self.make_token_literal(String, Literal::String(value)));
             }
 
             value.push(c);
@@ -243,7 +269,7 @@ impl<'a> Lexer<'a> {
             }
         }
 
-        self.make_token(Number(self.lexeme.parse().unwrap()))
+        self.make_token_literal(Number, Literal::Number(self.lexeme.parse().unwrap()))
     }
 
     #[inline]
@@ -285,7 +311,12 @@ impl<'a> Lexer<'a> {
 
     #[inline]
     fn make_token(&self, kind: TokenKind) -> Token {
-        Token::new(kind, self.lexeme.clone(), self.line)
+        Token::new(kind, None, self.lexeme.clone(), self.line)
+    }
+
+    #[inline]
+    fn make_token_literal(&self, kind: TokenKind, literal: Literal) -> Token {
+        Token::new(kind, Some(literal), self.lexeme.clone(), self.line)
     }
 }
 
@@ -359,8 +390,8 @@ mod test {
         let src = "/";
 
         let expected = vec![
-            Token::new(TokenKind::Slash, "/".to_string(), 1),
-            Token::new(TokenKind::Eof, "".to_string(), 1),
+            Token::new(TokenKind::Slash, None, "/".to_string(), 1),
+            Token::new(TokenKind::Eof, None, "".to_string(), 1),
         ];
 
         let mut lexer = Lexer::new(src);
@@ -374,7 +405,7 @@ mod test {
     fn comment() {
         let src = "// lol omg wtf";
 
-        let expected = vec![Token::new(TokenKind::Eof, "".to_string(), 1)];
+        let expected = vec![Token::new(TokenKind::Eof, None, "".to_string(), 1)];
 
         let mut lexer = Lexer::new(src);
         let (tokens, errors) = lexer.scan_tokens();
@@ -389,11 +420,12 @@ mod test {
 
         let expected = vec![
             Token::new(
-                TokenKind::String("raw string".to_string()),
+                TokenKind::String,
+                Some(Literal::String("raw string".to_string())),
                 r#""raw string""#.to_string(),
                 1,
             ),
-            Token::new(TokenKind::Eof, "".to_string(), 1),
+            Token::new(TokenKind::Eof, None, "".to_string(), 1),
         ];
 
         let mut lexer = Lexer::new(src);
@@ -407,7 +439,7 @@ mod test {
     fn string_unterminated() {
         let src = r#""bad string"#;
 
-        let expected = vec![Token::new(TokenKind::Eof, "".to_string(), 1)];
+        let expected = vec![Token::new(TokenKind::Eof, None, "".to_string(), 1)];
         let expected_errors = vec![(1, "Unterminated string".to_string())];
 
         let mut lexer = Lexer::new(src);
@@ -422,8 +454,13 @@ mod test {
         let src = "1337";
 
         let expected = vec![
-            Token::new(TokenKind::Number(1337.0), "1337".to_string(), 1),
-            Token::new(TokenKind::Eof, "".to_string(), 1),
+            Token::new(
+                TokenKind::Number,
+                Some(Literal::Number(1337.0)),
+                "1337".to_string(),
+                1,
+            ),
+            Token::new(TokenKind::Eof, None, "".to_string(), 1),
         ];
 
         let mut lexer = Lexer::new(src);
@@ -438,8 +475,13 @@ mod test {
         let src = "13.37";
 
         let expected = vec![
-            Token::new(TokenKind::Number(13.37), "13.37".to_string(), 1),
-            Token::new(TokenKind::Eof, "".to_string(), 1),
+            Token::new(
+                TokenKind::Number,
+                Some(Literal::Number(13.37)),
+                "13.37".to_string(),
+                1,
+            ),
+            Token::new(TokenKind::Eof, None, "".to_string(), 1),
         ];
 
         let mut lexer = Lexer::new(src);
@@ -454,8 +496,13 @@ mod test {
         let src = "1337.";
 
         let expected = vec![
-            Token::new(TokenKind::Number(1337.0), "1337.".to_string(), 1),
-            Token::new(TokenKind::Eof, "".to_string(), 1),
+            Token::new(
+                TokenKind::Number,
+                Some(Literal::Number(1337.0)),
+                "1337.".to_string(),
+                1,
+            ),
+            Token::new(TokenKind::Eof, None, "".to_string(), 1),
         ];
 
         let mut lexer = Lexer::new(src);
