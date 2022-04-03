@@ -44,6 +44,20 @@ impl<'a> Parser<'a> {
         None
     }
 
+    fn make_binary(&mut self, kinds: &[TokenKind], gen: impl Fn(&mut Self) -> Result<Expr, String>) -> Result<Expr, String> {
+        let mut expr = gen(self)?;
+
+        while let Some(op) = self.match_token(kinds) {
+            expr = Expr::Binary {
+                left: Rc::new(expr),
+                operator: op.clone(),
+                right: Rc::new(gen(self)?),
+            };
+        }
+
+        Ok(expr)
+    }
+
     fn next_ok(&mut self, expr: Expr) -> Result<Expr, String> {
         self.tokens.next();
 
@@ -58,20 +72,6 @@ impl<'a> Parser<'a> {
         }
 
         Err(msg.to_string())
-    }
-
-    fn make_binary(&mut self, kinds: &[TokenKind], gen: impl Fn(&mut Self) -> Result<Expr, String>) -> Result<Expr, String> {
-        let mut expr = gen(self)?;
-
-        while let Some(op) = self.match_token(kinds) {
-            expr = Expr::Binary {
-                left: Rc::new(expr),
-                operator: op.clone(),
-                right: Rc::new(gen(self)?),
-            };
-        }
-
-        Ok(expr)
     }
 
     // GRAMMAR
