@@ -34,6 +34,7 @@ impl<'a> Parser<'a> {
     // HELPERS
     // =======
 
+    #[inline]
     fn match_token(&mut self, kinds: &[TokenKind]) -> Option<&Token> {
         if let Some(&e) = self.tokens.peek() {
             if kinds.iter().any(|&k| k == e.kind()) {
@@ -44,6 +45,7 @@ impl<'a> Parser<'a> {
         None
     }
 
+    #[inline]
     fn make_binary(&mut self, kinds: &[TokenKind], gen: impl Fn(&mut Self) -> Result<Expr, String>) -> Result<Expr, String> {
         let mut expr = gen(self)?;
 
@@ -58,12 +60,14 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
+    #[inline]
     fn next_ok(&mut self, expr: Expr) -> Result<Expr, String> {
         self.tokens.next();
 
         Ok(expr)
     }
 
+    #[inline]
     fn next_assert(&mut self, kind: TokenKind, msg: &str) -> Result<(), String> {
         if let Some(&e) = self.tokens.peek() {
             if e.kind() == kind {
@@ -78,13 +82,11 @@ impl<'a> Parser<'a> {
     // =======
 
     // expression → equality;
-    #[inline]
     fn expression(&mut self) -> Result<Expr, String> {
         return self.equality();
     }
 
     // equality → comparison ( ( "!=" | "==" ) comparison )* ;
-    #[inline]
     fn equality(&mut self) -> Result<Expr, String> {
         use TokenKind::*;
 
@@ -92,7 +94,6 @@ impl<'a> Parser<'a> {
     }
 
     // comparison → term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
-    #[inline]
     fn comparison(&mut self) -> Result<Expr, String> {
         use TokenKind::*;
 
@@ -100,7 +101,6 @@ impl<'a> Parser<'a> {
     }
 
     // term → factor ( ( "+" | "-" ) factor )* ;
-    #[inline]
     fn term(&mut self) -> Result<Expr, String> {
         use TokenKind::*;
 
@@ -108,7 +108,6 @@ impl<'a> Parser<'a> {
     }
 
     // factor → unary ( ( "*" | "/" ) unary )* ;
-    #[inline]
     fn factor(&mut self) -> Result<Expr, String> {
         use TokenKind::*;
 
@@ -117,7 +116,6 @@ impl<'a> Parser<'a> {
 
     // unary → ( "!" | "-" ) unary
     //       | primary ;
-    #[inline]
     fn unary(&mut self) -> Result<Expr, String> {
         use TokenKind::*;
 
@@ -133,7 +131,6 @@ impl<'a> Parser<'a> {
 
     // primary → NUMBER | STRING | "true" | "false" | "nil"
     //         | "(" expression ")" ;
-    #[inline]
     fn primary(&mut self) -> Result<Expr, String> {
         use TokenKind::*;
 
