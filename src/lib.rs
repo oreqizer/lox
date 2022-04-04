@@ -1,5 +1,7 @@
+mod error;
 mod lexer;
 mod parser;
 
-pub use lexer::{Lexer, Error};
-pub use parser::{Parser};
+pub use error::Error;
+pub use lexer::Lexer;
+pub use parser::Parser;
