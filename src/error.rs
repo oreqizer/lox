@@ -1,3 +1,4 @@
+#[derive(Debug, PartialEq)]
 pub struct Error {
     msg: String,
     offset: usize,

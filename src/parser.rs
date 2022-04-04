@@ -1,5 +1,6 @@
 use std::{fmt, iter::Peekable, rc::Rc, slice::Iter};
 
+use crate::error::Error;
 use crate::lexer::{Token, TokenKind};
 
 #[derive(Debug, PartialEq)]
@@ -51,8 +52,11 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(&mut self) -> Result<Expr, String> {
-        self.expression()
+    pub fn parse(&mut self) -> Result<Expr, Vec<Error>> {
+        match self.expression() {
+            Ok(e) => Ok(e),
+            Err(e) => Err(vec![e]),
+        }
     }
 
     fn synchronize(&mut self) {
@@ -77,6 +81,81 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // expression → equality;
+    fn expression(&mut self) -> Result<Expr, Error> {
+        return self.equality();
+    }
+
+    // equality → comparison ( ( "!=" | "==" ) comparison )* ;
+    fn equality(&mut self) -> Result<Expr, Error> {
+        use TokenKind::*;
+
+        self.make_binary(&[BangEqual, EqualEqual], Parser::comparison)
+    }
+
+    // comparison → term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
+    fn comparison(&mut self) -> Result<Expr, Error> {
+        use TokenKind::*;
+
+        self.make_binary(&[Greater, GreaterEqual, Less, LessEqual], Parser::term)
+    }
+
+    // term → factor ( ( "+" | "-" ) factor )* ;
+    fn term(&mut self) -> Result<Expr, Error> {
+        use TokenKind::*;
+
+        self.make_binary(&[Plus, Minus], Parser::factor)
+    }
+
+    // factor → unary ( ( "*" | "/" ) unary )* ;
+    fn factor(&mut self) -> Result<Expr, Error> {
+        use TokenKind::*;
+
+        self.make_binary(&[Star, Slash], Parser::unary)
+    }
+
+    // unary → ( "!" | "-" ) unary
+    //       | primary ;
+    fn unary(&mut self) -> Result<Expr, Error> {
+        use TokenKind::*;
+
+        if let Some(op) = self.match_token(&[Bang, Minus]) {
+            Ok(Expr::Unary {
+                operator: op.clone(),
+                right: Rc::new(self.unary()?),
+            })
+        } else {
+            self.primary()
+        }
+    }
+
+    // primary → NUMBER | STRING | "true" | "false" | "nil"
+    //         | "(" expression ")" ;
+    fn primary(&mut self) -> Result<Expr, Error> {
+        use TokenKind::*;
+
+        if let Some(&token) = self.tokens.peek() {
+            return match token.kind() {
+                False => self.next_ok(Expr::Boolean(false)),
+                True => self.next_ok(Expr::Boolean(true)),
+                Nil => self.next_ok(Expr::Nil),
+                Number => self.next_ok(Expr::Number(token.literal_number())),
+                String => self.next_ok(Expr::String(token.literal_string())),
+                LeftParen => {
+                    self.tokens.next();
+
+                    let expr = self.expression()?;
+                    self.next_assert(RightParen, "Expect ')' after expression")?;
+
+                    Ok(Expr::Grouping(Rc::new(expr)))
+                }
+                _ => Err(Error::new("Not implemented yet", 0)),
+            };
+        }
+
+        Err(Error::new("Not implemented yet", 0))
+    }
+
     // HELPERS
     // =======
 
@@ -95,8 +174,8 @@ impl<'a> Parser<'a> {
     fn make_binary(
         &mut self,
         kinds: &[TokenKind],
-        gen: impl Fn(&mut Self) -> Result<Expr, String>,
-    ) -> Result<Expr, String> {
+        gen: impl Fn(&mut Self) -> Result<Expr, Error>,
+    ) -> Result<Expr, Error> {
         let mut expr = gen(self)?;
 
         while let Some(op) = self.match_token(kinds) {
@@ -111,98 +190,25 @@ impl<'a> Parser<'a> {
     }
 
     #[inline]
-    fn next_ok(&mut self, expr: Expr) -> Result<Expr, String> {
+    fn next_ok(&mut self, expr: Expr) -> Result<Expr, Error> {
         self.tokens.next();
 
         Ok(expr)
     }
 
     #[inline]
-    fn next_assert(&mut self, kind: TokenKind, msg: &str) -> Result<&Token, String> {
+    fn next_assert(&mut self, kind: TokenKind, msg: &str) -> Result<&Token, Error> {
         if let Some(&e) = self.tokens.peek() {
             if e.kind() == kind {
                 return Ok(self.tokens.next().unwrap());
             }
+
+            return Err(Error::new(msg, e.offset()));
         }
 
-        Err(msg.to_string())
-    }
-
-    // GRAMMAR
-    // =======
-
-    // expression → equality;
-    fn expression(&mut self) -> Result<Expr, String> {
-        return self.equality();
-    }
-
-    // equality → comparison ( ( "!=" | "==" ) comparison )* ;
-    fn equality(&mut self) -> Result<Expr, String> {
-        use TokenKind::*;
-
-        self.make_binary(&[BangEqual, EqualEqual], Parser::comparison)
-    }
-
-    // comparison → term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
-    fn comparison(&mut self) -> Result<Expr, String> {
-        use TokenKind::*;
-
-        self.make_binary(&[Greater, GreaterEqual, Less, LessEqual], Parser::term)
-    }
-
-    // term → factor ( ( "+" | "-" ) factor )* ;
-    fn term(&mut self) -> Result<Expr, String> {
-        use TokenKind::*;
-
-        self.make_binary(&[Plus, Minus], Parser::factor)
-    }
-
-    // factor → unary ( ( "*" | "/" ) unary )* ;
-    fn factor(&mut self) -> Result<Expr, String> {
-        use TokenKind::*;
-
-        self.make_binary(&[Star, Slash], Parser::unary)
-    }
-
-    // unary → ( "!" | "-" ) unary
-    //       | primary ;
-    fn unary(&mut self) -> Result<Expr, String> {
-        use TokenKind::*;
-
-        if let Some(op) = self.match_token(&[Bang, Minus]) {
-            Ok(Expr::Unary {
-                operator: op.clone(),
-                right: Rc::new(self.unary()?),
-            })
-        } else {
-            self.primary()
-        }
-    }
-
-    // primary → NUMBER | STRING | "true" | "false" | "nil"
-    //         | "(" expression ")" ;
-    fn primary(&mut self) -> Result<Expr, String> {
-        use TokenKind::*;
-
-        if let Some(&token) = self.tokens.peek() {
-            return match token.kind() {
-                False => self.next_ok(Expr::Boolean(false)),
-                True => self.next_ok(Expr::Boolean(true)),
-                Nil => self.next_ok(Expr::Nil),
-                Number => self.next_ok(Expr::Number(token.literal_number())),
-                String => self.next_ok(Expr::String(token.literal_string())),
-                LeftParen => {
-                    self.tokens.next();
-
-                    let expr = self.expression()?;
-                    self.next_assert(RightParen, "Expect ')' after expression")?;
-
-                    Ok(Expr::Grouping(Rc::new(expr)))
-                }
-                _ => Err("Not implemented yet".to_string()),
-            };
-        }
-
-        Err("Not implemented yet".to_string())
+        Err(Error::new(
+            "Unexpected end of input",
+            self.tokens.clone().last().map_or(0, |t| t.offset()),
+        ))
     }
 }

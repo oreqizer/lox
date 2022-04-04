@@ -2,37 +2,29 @@ use std::io::Write;
 
 use lox::{Lexer, Parser};
 
-fn run(src: String) -> Result<(), String> {
+fn run(src: String) -> Option<()> {
     let mut lexer = Lexer::new(&src);
     let (tokens, errors) = lexer.scan_tokens();
 
-    if errors.len() > 0 {
-        // TODO properly handle errors:
-        // 1. create a global "Error" type with line information and string
-        // 2. print errors as soon as lexing is done
-        // 3. call parser after lexing, overwriting errors
-        // 4. print further errors after parsing is done
-        return Err(errors
-            .iter()
-            .map(|(line, text)| format!("Line {} | {}", line, text))
-            .reduce(|acc, next| format!("{}\n{}", acc, next))
-            .unwrap());
-    }
-
-    for t in &tokens {
-        println!("{:?}", t);
+    for e in &errors {
+        println!("{}", e.format(&src));
     }
 
     let mut parser = Parser::new(&tokens);
-    let expr = parser.parse()?;
+    match parser.parse() {
+        Ok(e) => {
+            println!("{}", e);
 
-    println!("{}", expr);
+            Some(())
+        },
+        Err(errs) => {
+            for e in &errs {
+                println!("{}", e.format(&src));
+            }
 
-    Ok(())
-}
-
-fn error(line: u32, loc: &str, msg: &str) {
-    eprintln!("[line {}] Error {}: {}", line, loc, msg);
+            None
+        }
+    }
 }
 
 fn repl() {
@@ -42,14 +34,13 @@ fn repl() {
 
         let mut line = String::new();
         std::io::stdin().read_line(&mut line).unwrap();
-        if &line == ":q\n" {
+        line.pop(); // pops \n
+
+        if &line == ":q" {
             return;
         }
 
-        match run(line) {
-            Ok(()) => println!("Ok"),
-            Err(ref e) => println!("Syntax error: {}", e),
-        }
+        run(line);
     }
 }
 
@@ -63,8 +54,7 @@ fn main() {
     if let Some(file) = args.nth(1) {
         let src = std::fs::read_to_string(file).expect("failed to read source file");
 
-        if let Err(ref e) = run(src) {
-            println!("Syntax error: {}", e);
+        if let None = run(src) {
             std::process::exit(65);
         }
     } else {
