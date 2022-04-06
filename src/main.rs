@@ -1,7 +1,8 @@
 use std::io::Write;
 
-use lox::{Lexer, Parser};
+use lox::{Lexer, Parser, Interpreter};
 
+// TODO make proper error handling here
 fn run(src: String) -> Option<()> {
     let mut lexer = Lexer::new(&src);
     let (tokens, errors) = lexer.scan_tokens();
@@ -12,10 +13,9 @@ fn run(src: String) -> Option<()> {
 
     let mut parser = Parser::new(&tokens);
     match parser.parse() {
-        Ok(e) => {
-            println!("{}", e);
-
-            Some(())
+        Ok(e) => match Interpreter::interpret(&e) {
+            Ok(res) => { println!("{}", res); Some(()) },
+            Err(e) => { println!("{}", e.format(&src)); None },
         },
         Err(errs) => {
             for e in &errs {
