@@ -331,7 +331,7 @@ impl<'a> Lexer<'a> {
 
     #[inline]
     fn token_start(&self) -> usize {
-        self.offset - self.lexeme.len() + 1
+        self.offset - self.lexeme.len()
     }
 
     #[inline]
@@ -413,7 +413,7 @@ mod test {
         let src = "/";
 
         let expected = vec![
-            Token::new(TokenKind::Slash, None, "/".to_string(), 1),
+            Token::new(TokenKind::Slash, None, "/".to_string(), 0),
             Token::new(TokenKind::Eof, None, "".to_string(), 2),
         ];
 
@@ -446,7 +446,7 @@ mod test {
                 TokenKind::String,
                 Some(Literal::String("raw string".to_string())),
                 r#""raw string""#.to_string(),
-                1,
+                0,
             ),
             Token::new(TokenKind::Eof, None, "".to_string(), 13),
         ];
@@ -463,7 +463,7 @@ mod test {
         let src = r#""bad string"#;
 
         let expected = vec![Token::new(TokenKind::Eof, None, "".to_string(), 12)];
-        let expected_errors = vec![Error::new("Unterminated string", 1)];
+        let expected_errors = vec![Error::new("Unterminated string", 0)];
 
         let mut lexer = Lexer::new(src);
         let (tokens, errors) = lexer.scan_tokens();
@@ -481,7 +481,7 @@ mod test {
                 TokenKind::Number,
                 Some(Literal::Number(1337.0)),
                 "1337".to_string(),
-                1,
+                0,
             ),
             Token::new(TokenKind::Eof, None, "".to_string(), 5),
         ];
@@ -502,7 +502,7 @@ mod test {
                 TokenKind::Number,
                 Some(Literal::Number(13.37)),
                 "13.37".to_string(),
-                1,
+                0,
             ),
             Token::new(TokenKind::Eof, None, "".to_string(), 6),
         ];
@@ -523,7 +523,7 @@ mod test {
                 TokenKind::Number,
                 Some(Literal::Number(1337.0)),
                 "1337.".to_string(),
-                1,
+                0,
             ),
             Token::new(TokenKind::Eof, None, "".to_string(), 6),
         ];

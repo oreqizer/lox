@@ -41,6 +41,12 @@ impl fmt::Display for Expr {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub enum Stmt {
+    Expr(Expr),
+    Print(Expr),
+}
+
 pub struct Parser<'a> {
     tokens: Peekable<Iter<'a, Token>>,
 }
@@ -52,33 +58,59 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(&mut self) -> Result<Expr, Vec<Error>> {
-        match self.expression() {
-            Ok(e) => Ok(e),
-            Err(e) => Err(vec![e]),
+    // program → statement* EOF ;
+    pub fn parse(&mut self) -> (Vec<Stmt>, Vec<Error>) {
+        let mut stmts = Vec::new();
+        let mut errors = Vec::new();
+
+        while let Some(&token) = self.tokens.peek() {
+            if token.kind() == TokenKind::Eof {
+                break;
+            }
+
+            match self.statement() {
+                Ok(s) => stmts.push(s),
+                Err(e) => {
+                    errors.push(e);
+                    self.synchronize()
+                }
+            };
+        }
+
+        (stmts, errors)
+    }
+
+    // statement → exprStmt
+    //           | printStmt ;
+    fn statement(&mut self) -> Result<Stmt, Error> {
+        use TokenKind::*;
+
+        if let Some(_) = self.match_token(&[Print]) {
+            self.print_stmt()
+        } else {
+            self.expr_stmt()
         }
     }
 
-    fn synchronize(&mut self) {
+    // exprStmt → expression ";" ;
+    fn expr_stmt(&mut self) -> Result<Stmt, Error> {
         use TokenKind::*;
 
-        while let Some(token) = self.tokens.next() {
-            if let Semicolon = token.kind() {
-                return;
-            };
+        let expr = self.expression()?;
+        self.next_assert(Semicolon, "Expect ';' after value")?;
 
-            match self.tokens.peek().map(|t| t.kind()) {
-                Some(Class) => return,
-                Some(Fun) => return,
-                Some(Var) => return,
-                Some(For) => return,
-                Some(If) => return,
-                Some(While) => return,
-                Some(Print) => return,
-                Some(Return) => return,
-                _ => (),
-            };
-        }
+        Ok(Stmt::Expr(expr))
+    }
+
+    // printStmt → "print" expression ";" ;
+    fn print_stmt(&mut self) -> Result<Stmt, Error> {
+        use TokenKind::*;
+
+        // "print" already matched in Parser::statement
+        let expr = self.expression()?;
+        self.next_assert(Semicolon, "Expect ';' after value")?;
+
+        Ok(Stmt::Print(expr))
     }
 
     // expression → equality;
@@ -160,6 +192,29 @@ impl<'a> Parser<'a> {
     // =======
 
     #[inline]
+    fn synchronize(&mut self) {
+        use TokenKind::*;
+
+        while let Some(token) = self.tokens.next() {
+            if let Semicolon = token.kind() {
+                return;
+            };
+
+            match self.tokens.peek().map(|t| t.kind()) {
+                Some(Class) => return,
+                Some(Fun) => return,
+                Some(Var) => return,
+                Some(For) => return,
+                Some(If) => return,
+                Some(While) => return,
+                Some(Print) => return,
+                Some(Return) => return,
+                _ => (),
+            };
+        }
+    }
+
+    #[inline]
     fn match_token(&mut self, kinds: &[TokenKind]) -> Option<&Token> {
         if let Some(&e) = self.tokens.peek() {
             if kinds.iter().any(|&k| k == e.kind()) {
@@ -211,4 +266,61 @@ impl<'a> Parser<'a> {
             self.tokens.clone().last().map_or(0, |t| t.offset()),
         ))
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::lexer::Literal;
+
+    use super::*;
+
+    #[test]
+    fn primary_primitive() {
+        let inputs = [
+            ((TokenKind::False, None), Expr::Boolean(false)),
+            ((TokenKind::True, None), Expr::Boolean(true)),
+            ((TokenKind::Nil, None), Expr::Nil),
+            (
+                (TokenKind::Number, Some(Literal::Number(1337.0))),
+                Expr::Number(1337.0),
+            ),
+            (
+                (TokenKind::String, Some(Literal::String("kek".to_string()))),
+                Expr::String("kek".to_string()),
+            ),
+        ];
+
+        for ((kind, literal), want) in inputs.into_iter() {
+            let tokens = [
+                Token::new(kind, literal, "".to_string(), 0),
+                Token::new(TokenKind::Semicolon, None, "".to_string(), 0),
+            ];
+            let mut parser = Parser::new(&tokens);
+            let (stmts, errors) = parser.parse();
+
+            assert_eq!(errors.len(), 0);
+            assert_eq!(stmts, vec![Stmt::Expr(want)]);
+        }
+    }
+
+    #[test]
+    fn primary_grouping() {
+        let tokens = [
+            Token::new(TokenKind::LeftParen, None, "".to_string(), 0),
+            Token::new(TokenKind::Nil, None, "".to_string(), 0),
+            Token::new(TokenKind::RightParen, None, "".to_string(), 0),
+            Token::new(TokenKind::Semicolon, None, "".to_string(), 0),
+        ];
+
+        let mut parser = Parser::new(&tokens);
+        let (stmts, errors) = parser.parse();
+
+        assert_eq!(errors.len(), 0);
+        assert_eq!(stmts, vec![Stmt::Expr(Expr::Grouping(Rc::new(Expr::Nil)))]);
+    }
+
+    // #[test]
+    // fn primary_grouping_unclosed() {
+    //     todo!();
+    // }
 }

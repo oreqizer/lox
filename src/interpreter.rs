@@ -2,7 +2,7 @@ use std::fmt;
 
 use crate::{
     lexer::{Token, TokenKind},
-    parser::Expr,
+    parser::{Expr, Stmt},
     Error,
 };
 
@@ -126,8 +126,41 @@ impl Value {
 pub struct Interpreter {}
 
 impl Interpreter {
+    pub fn new() -> Self {
+        Self{}
+    }
+
     // TODO: later replace Error with RuntimeError that has a call stack and stuff
-    pub fn interpret(expr: &Expr) -> Result<Value, Error> {
+    pub fn interpret(&self, stmts: &[Stmt]) -> Result<(), Error> {
+        for s in stmts {
+            self.execute(s)?;
+        }
+        Ok(())
+    }
+
+    pub fn execute(&self, stmt: &Stmt) -> Result<Option<Value>, Error> {
+        match stmt {
+            Stmt::Expr(e) => Ok(Some(e.try_into()?)),
+            Stmt::Print(e) => { self.print(e)?; Ok(None) },
+        }
+    }
+
+    fn print(&self, expr: &Expr) -> Result<(), Error> {
+        println!("{}", self.evaluate(expr)?);
+        Ok(())
+    }
+
+    fn evaluate(&self, expr: &Expr) -> Result<Value, Error> {
         expr.try_into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn nil() {
+        todo!()
     }
 }
