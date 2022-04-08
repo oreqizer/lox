@@ -86,6 +86,10 @@ impl Token {
         self.offset
     }
 
+    pub fn literal_identifier(&self) -> &str {
+        &self.lexeme
+    }
+
     pub fn literal_number(&self) -> f64 {
         match self.literal {
             Some(Literal::Number(f)) => f,
@@ -93,10 +97,10 @@ impl Token {
         }
     }
 
-    pub fn literal_string(&self) -> String {
+    pub fn literal_string(&self) -> &str {
         match self.literal {
-            Some(Literal::String(ref s)) => s.clone(),
-            _ => "".to_string(),
+            Some(Literal::String(ref s)) => s,
+            _ => "",
         }
     }
 }

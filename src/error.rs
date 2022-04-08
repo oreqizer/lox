@@ -81,9 +81,12 @@ mod tests {
 
         let error = Error::new("Unknown field", 74);
 
-        assert_eq!(&error.format(&src), "Error: Unknown field
+        assert_eq!(
+            &error.format(&src),
+            "Error: Unknown field
 
     6 |         this.lol = omg; // just a comment
-                     ^--- Here.");
+                     ^--- Here."
+        );
     }
 }

@@ -1,6 +1,6 @@
 use std::io::Write;
 
-use lox::{Lexer, Parser, Interpreter, Stmt, Value};
+use lox::{Interpreter, Lexer, Parser, Stmt};
 
 fn run(src: &str) -> Vec<Stmt> {
     let mut lexer = Lexer::new(src);
@@ -16,12 +16,12 @@ fn run(src: &str) -> Vec<Stmt> {
     for e in &errors {
         println!("{}", e.format(src));
     }
-    
+
     stmts
 }
 
 fn repl() {
-    let interpreter = Interpreter::new();
+    let mut interpreter = Interpreter::new();
 
     loop {
         print!("> ");
@@ -36,12 +36,9 @@ fn repl() {
         }
 
         let stmts = run(&line);
-        for stmt in &stmts {
-            match interpreter.execute(stmt) {
-                Ok(Some(v)) => println!("{}", v),
-                Ok(None) => continue,
-                Err(e) => println!("{}", e.format(&line)),
-            }
+        match interpreter.interpret(&stmts) {
+            Ok(_) => continue,
+            Err(e) => println!("{}", e.format(&line)),
         }
     }
 }
@@ -56,7 +53,7 @@ fn main() {
     if let Some(file) = args.nth(1) {
         let src = std::fs::read_to_string(file).expect("failed to read source file");
 
-        let interpreter = Interpreter::new();
+        let mut interpreter = Interpreter::new();
         let stmts = run(&src);
 
         if let Err(e) = interpreter.interpret(&stmts) {

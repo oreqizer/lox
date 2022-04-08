@@ -5,6 +5,11 @@ use crate::lexer::{Token, TokenKind};
 
 #[derive(Debug, PartialEq)]
 pub enum Expr {
+    Variable(Token),
+    Assign {
+        name: Token,
+        value: Rc<Expr>,
+    },
     Boolean(bool),
     Nil,
     Number(f64),
@@ -26,6 +31,8 @@ impl fmt::Display for Expr {
         use Expr::*;
 
         match self {
+            Variable(ref s) => write!(f, "{}", s),
+            Assign{ ref name, value } => write!(f, "{} = {}", name, value),
             Boolean(b) => write!(f, "{}", b),
             Nil => write!(f, "nil"),
             Number(n) => write!(f, "{}", n),
@@ -45,6 +52,7 @@ impl fmt::Display for Expr {
 pub enum Stmt {
     Expr(Expr),
     Print(Expr),
+    VarDecl { name: String, value: Expr },
 }
 
 pub struct Parser<'a> {
@@ -58,7 +66,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // program → statement* EOF ;
+    // program → declaration* EOF ;
     pub fn parse(&mut self) -> (Vec<Stmt>, Vec<Error>) {
         let mut stmts = Vec::new();
         let mut errors = Vec::new();
@@ -68,7 +76,7 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            match self.statement() {
+            match self.declaration() {
                 Ok(s) => stmts.push(s),
                 Err(e) => {
                     errors.push(e);
@@ -78,6 +86,39 @@ impl<'a> Parser<'a> {
         }
 
         (stmts, errors)
+    }
+
+    // declaration → varDecl
+    //             | statement ;
+    fn declaration(&mut self) -> Result<Stmt, Error> {
+        use TokenKind::*;
+
+        if let Some(_) = self.match_token(&[Var]) {
+            self.var_decl()
+        } else {
+            self.statement()
+        }
+    }
+
+    // varDecl → "var" IDENTIFIER ( "=" expression )? ";" ;
+    fn var_decl(&mut self) -> Result<Stmt, Error> {
+        use TokenKind::*;
+
+        // "var" already matched in Parser::declaration
+        let name = self
+            .next_assert(Identifier, "Expect identifier after 'var'")?
+            .literal_identifier()
+            .to_string();
+
+        let value = if let Some(_) = self.match_token(&[Equal]) {
+            self.expression()?
+        } else {
+            Expr::Nil
+        };
+
+        self.next_assert(Semicolon, "Expect ';' after value")?;
+
+        Ok(Stmt::VarDecl { name, value })
     }
 
     // statement → exprStmt
@@ -113,9 +154,33 @@ impl<'a> Parser<'a> {
         Ok(Stmt::Print(expr))
     }
 
-    // expression → equality;
+    // expression → assignment ;
     fn expression(&mut self) -> Result<Expr, Error> {
-        return self.equality();
+        return self.assignment();
+    }
+
+    // assignment → IDENTIFIER "=" assignment
+    //            | equality ;
+    fn assignment(&mut self) -> Result<Expr, Error> {
+        use TokenKind::*;
+
+        let expr = self.equality()?;
+
+        if let Some(eq) = self.match_token(&[Equal]) {
+            let offset = eq.offset();
+            let value = self.assignment()?;
+
+            match expr {
+                Expr::Variable(t) => Ok(Expr::Assign {
+                    name: t,
+                    value: Rc::new(value),
+                }),
+                // Compile-time error on purpose, opposed to the book
+                _ => Err(Error::new("Invalid assignment target", offset)),
+            }
+        } else {
+            Ok(expr)
+        }
     }
 
     // equality → comparison ( ( "!=" | "==" ) comparison )* ;
@@ -161,18 +226,20 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // primary → NUMBER | STRING | "true" | "false" | "nil"
-    //         | "(" expression ")" ;
+    // primary → "true" | "false" | "nil"
+    //         | NUMBER | STRING
+    //         | "(" expression ")"
+    //         | IDENTIFIER ;
     fn primary(&mut self) -> Result<Expr, Error> {
         use TokenKind::*;
 
         if let Some(&token) = self.tokens.peek() {
             return match token.kind() {
-                False => self.next_ok(Expr::Boolean(false)),
                 True => self.next_ok(Expr::Boolean(true)),
+                False => self.next_ok(Expr::Boolean(false)),
                 Nil => self.next_ok(Expr::Nil),
                 Number => self.next_ok(Expr::Number(token.literal_number())),
-                String => self.next_ok(Expr::String(token.literal_string())),
+                String => self.next_ok(Expr::String(token.literal_string().to_string())),
                 LeftParen => {
                     self.tokens.next();
 
@@ -181,11 +248,12 @@ impl<'a> Parser<'a> {
 
                     Ok(Expr::Grouping(Rc::new(expr)))
                 }
-                _ => Err(Error::new("Not implemented yet", 0)),
+                Identifier => self.next_ok(Expr::Variable(token.clone())),
+                _ => Err(Error::new("Unexpected token", token.offset())),
             };
         }
 
-        Err(Error::new("Not implemented yet", 0))
+        Err(Error::new("Unexpected EOF", 0))
     }
 
     // HELPERS
