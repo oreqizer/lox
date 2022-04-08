@@ -1,8 +1,8 @@
 use std::io::Write;
 
-use lox::{Interpreter, Lexer, Parser, Stmt};
+use lox::{lexer::Token, parser::Expr, parser::Stmt, Interpreter, Lexer, Parser};
 
-fn run(src: &str) -> Vec<Stmt> {
+fn run_lexer(src: &str) -> Vec<Token> {
     let mut lexer = Lexer::new(src);
     let (tokens, errors) = lexer.scan_tokens();
 
@@ -10,6 +10,18 @@ fn run(src: &str) -> Vec<Stmt> {
         println!("{}", e.format(src));
     }
 
+    tokens
+}
+
+fn run_parse_expr(tokens: &[Token]) -> Option<Expr> {
+    let mut parser = Parser::new(&tokens);
+    match parser.parse_expr() {
+        Ok(e) => Some(e),
+        _ => None,
+    }
+}
+
+fn run_parse(src: &str, tokens: &[Token]) -> Vec<Stmt> {
     let mut parser = Parser::new(&tokens);
     let (stmts, errors) = parser.parse();
 
@@ -35,7 +47,16 @@ fn repl() {
             return;
         }
 
-        let stmts = run(&line);
+        let tokens = run_lexer(&line);
+        if let Some(e) = run_parse_expr(&tokens) {
+            match interpreter.eval(&e) {
+                Ok(v) => println!("{}", v),
+                Err(e) => println!("{}", e.format(&line)),
+            }
+            continue;
+        }
+
+        let stmts = run_parse(&line, &tokens);
         match interpreter.interpret(&stmts) {
             Ok(_) => continue,
             Err(e) => println!("{}", e.format(&line)),
@@ -54,7 +75,8 @@ fn main() {
         let src = std::fs::read_to_string(file).expect("failed to read source file");
 
         let mut interpreter = Interpreter::new();
-        let stmts = run(&src);
+        let tokens = run_lexer(&src);
+        let stmts = run_parse(&src, &tokens);
 
         if let Err(e) = interpreter.interpret(&stmts) {
             println!("{}", e.format(&src));

@@ -1,9 +1,9 @@
-mod error;
-mod interpreter;
-mod lexer;
-mod parser;
+pub mod error;
+pub mod interpreter;
+pub mod lexer;
+pub mod parser;
 
 pub use error::Error;
-pub use interpreter::{Interpreter, Value};
+pub use interpreter::Interpreter;
 pub use lexer::Lexer;
-pub use parser::{Parser, Stmt};
+pub use parser::Parser;

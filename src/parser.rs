@@ -89,6 +89,13 @@ impl<'a> Parser<'a> {
         (stmts, errors)
     }
 
+    // program → expression? EOF ;
+    pub fn parse_expr(&mut self) -> Result<Expr, Error> {
+        let expr = self.expression()?;
+        self.next_assert(TokenKind::Eof, "Expect EOF")?;
+        Ok(expr)
+    }
+
     // declaration → varDecl
     //             | statement ;
     fn declaration(&mut self) -> Result<Stmt, Error> {

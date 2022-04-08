@@ -92,16 +92,16 @@ impl Interpreter {
         }
     }
 
-    fn env(&mut self) -> &mut Environment {
-        self.env.as_mut().unwrap()
-    }
-
     // TODO: later replace Error with RuntimeError that has a call stack and stuff
     pub fn interpret(&mut self, stmts: &[Stmt]) -> Result<(), Error> {
         for s in stmts {
             self.visit_stmt(s)?;
         }
         Ok(())
+    }
+
+    pub fn eval(&mut self, expr: &Expr) -> Result<Value, Error> {
+        self.visit_expr(expr)
     }
 
     fn visit_stmt(&mut self, stmt: &Stmt) -> Result<(), Error> {
@@ -177,6 +177,11 @@ impl Interpreter {
 
     // HELPERS
     // =======
+
+    #[inline]
+    fn env(&mut self) -> &mut Environment {
+        self.env.as_mut().unwrap()
+    }
 
     #[inline]
     fn visit_unary_expr(&mut self, op: &Token, right: &Expr) -> Result<Value, Error> {
