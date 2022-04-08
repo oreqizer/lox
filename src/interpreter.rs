@@ -45,12 +45,14 @@ impl PartialEq for Value {
 
 struct Environment {
     vars: HashMap<String, Value>,
+    enclosing: Option<Box<Environment>>,
 }
 
 impl Environment {
-    fn new() -> Self {
+    fn new(enclosing: Option<Box<Environment>>) -> Self {
         Self {
             vars: HashMap::new(),
+            enclosing,
         }
     }
 
@@ -63,39 +65,60 @@ impl Environment {
             self.vars.insert(name.to_string(), value);
             Some(())
         } else {
-            None
+            self.enclosing.as_mut().and_then(|e| e.assign(name, value))
         }
     }
 
     fn get(&self, name: &str) -> Option<Value> {
-        self.vars.get(name).map(|v| v.clone())
+        if let Some(value) = self.vars.get(name) {
+            Some(value.clone())
+        } else {
+            let upper = self.enclosing.as_ref().map(|e| e.get(name));
+
+            match upper {
+                Some(v) => v,
+                None => None,
+            }
+        }
     }
 }
 
 pub struct Interpreter {
-    env: Environment,
+    env: Option<Box<Environment>>,
 }
 
 impl Interpreter {
     pub fn new() -> Self {
         Self {
-            env: Environment::new(),
+            env: Some(Box::new(Environment::new(None))),
         }
+    }
+
+    fn env(&mut self) -> &mut Environment {
+        self.env.as_mut().unwrap()
     }
 
     // TODO: later replace Error with RuntimeError that has a call stack and stuff
     pub fn interpret(&mut self, stmts: &[Stmt]) -> Result<(), Error> {
         for s in stmts {
-            match s {
-                Stmt::Expr(e) => {
-                    self.visit_expr(e)?;
-                }
-                Stmt::Print(e) => {
-                    self.visit_print_stmt(e)?;
-                }
-                Stmt::VarDecl { name, value } => {
-                    self.visit_var_stmt(name, value)?;
-                }
+            self.visit_stmt(s)?;
+        }
+        Ok(())
+    }
+
+    fn visit_stmt(&mut self, stmt: &Stmt) -> Result<(), Error> {
+        match stmt {
+            Stmt::Expr(e) => {
+                self.visit_expr(e)?;
+            }
+            Stmt::Print(e) => {
+                self.visit_print_stmt(e)?;
+            }
+            Stmt::VarDecl { name, value } => {
+                self.visit_var_stmt(name, value)?;
+            }
+            Stmt::Block(stmts) => {
+                self.visit_block(stmts)?;
             }
         }
         Ok(())
@@ -104,12 +127,12 @@ impl Interpreter {
     fn visit_expr(&mut self, expr: &Expr) -> Result<Value, Error> {
         match expr {
             Expr::Variable(token) => self
-                .env
+                .env()
                 .get(token.literal_identifier())
                 .ok_or(Error::new("Undefined variable", token.offset())),
             Expr::Assign { name, value } => {
                 let value = self.visit_expr(value.as_ref())?;
-                self.env
+                self.env()
                     .assign(name.literal_identifier(), value.clone())
                     .ok_or(Error::new("Undefined variable", name.offset()))?;
                 Ok(value)
@@ -135,8 +158,23 @@ impl Interpreter {
 
     fn visit_var_stmt(&mut self, name: &str, expr: &Expr) -> Result<(), Error> {
         let value = self.visit_expr(expr)?;
-        self.env.define(name, value.clone());
+        self.env().define(name, value.clone());
         Ok(())
+    }
+
+    fn visit_block(&mut self, stmts: &[Stmt]) -> Result<(), Error> {
+        let mut res = Ok(());
+
+        self.env = Some(Box::new(Environment::new(self.env.take())));
+        for stmt in stmts {
+            if let Err(e) = self.visit_stmt(stmt) {
+                res = Err(e);
+                break;
+            }
+        }
+        self.env = self.env().enclosing.take();
+
+        res
     }
 
     // HELPERS

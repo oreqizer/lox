@@ -32,7 +32,7 @@ impl fmt::Display for Expr {
 
         match self {
             Variable(ref s) => write!(f, "{}", s),
-            Assign{ ref name, value } => write!(f, "{} = {}", name, value),
+            Assign { ref name, value } => write!(f, "{} = {}", name, value),
             Boolean(b) => write!(f, "{}", b),
             Nil => write!(f, "nil"),
             Number(n) => write!(f, "{}", n),
@@ -53,6 +53,7 @@ pub enum Stmt {
     Expr(Expr),
     Print(Expr),
     VarDecl { name: String, value: Expr },
+    Block(Vec<Stmt>),
 }
 
 pub struct Parser<'a> {
@@ -122,14 +123,15 @@ impl<'a> Parser<'a> {
     }
 
     // statement → exprStmt
-    //           | printStmt ;
+    //           | printStmt
+    //           | block ;
     fn statement(&mut self) -> Result<Stmt, Error> {
         use TokenKind::*;
 
-        if let Some(_) = self.match_token(&[Print]) {
-            self.print_stmt()
-        } else {
-            self.expr_stmt()
+        match self.match_token(&[Print, LeftBrace]).map(|t| t.kind()) {
+            Some(Print) => self.print_stmt(),
+            Some(LeftBrace) => self.block(),
+            _ => self.expr_stmt(),
         }
     }
 
@@ -154,9 +156,15 @@ impl<'a> Parser<'a> {
         Ok(Stmt::Print(expr))
     }
 
+    // block → "{" declaration* "}" ;
+    fn block(&mut self) -> Result<Stmt, Error> {
+        // "{" already matched in Parser::statement
+        Ok(Stmt::Block(self.make_block()?))
+    }
+
     // expression → assignment ;
     fn expression(&mut self) -> Result<Expr, Error> {
-        return self.assignment();
+        self.assignment()
     }
 
     // assignment → IDENTIFIER "=" assignment
@@ -259,7 +267,6 @@ impl<'a> Parser<'a> {
     // HELPERS
     // =======
 
-    #[inline]
     fn synchronize(&mut self) {
         use TokenKind::*;
 
@@ -310,6 +317,23 @@ impl<'a> Parser<'a> {
         }
 
         Ok(expr)
+    }
+
+    #[inline]
+    fn make_block(&mut self) -> Result<Vec<Stmt>, Error> {
+        use TokenKind::*;
+
+        let mut stmts = Vec::new();
+
+        while let Some(&token) = self.tokens.peek() {
+            match token.kind() {
+                RightBrace => break,
+                _ => stmts.push(self.declaration()?),
+            }
+        }
+
+        self.next_assert(RightBrace, "Expect '}' after block")?;
+        Ok(stmts)
     }
 
     #[inline]
