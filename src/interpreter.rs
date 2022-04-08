@@ -73,9 +73,7 @@ impl Environment {
         if let Some(value) = self.vars.get(name) {
             Some(value.clone())
         } else {
-            let upper = self.enclosing.as_ref().map(|e| e.get(name));
-
-            match upper {
+            match self.enclosing.as_ref().map(|e| e.get(name)) {
                 Some(v) => v,
                 None => None,
             }
