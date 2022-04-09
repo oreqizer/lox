@@ -1,4 +1,4 @@
-use std::{fmt, iter::Peekable, rc::Rc, slice::Iter};
+use std::{fmt, iter::Peekable, slice::Iter};
 
 use crate::error::Error;
 use crate::lexer::{Token, TokenKind};
@@ -8,21 +8,21 @@ pub enum Expr {
     Variable(Token),
     Assign {
         name: Token,
-        value: Rc<Expr>,
+        value: Box<Expr>,
     },
     Boolean(bool),
     Nil,
     Number(f64),
     String(String),
-    Grouping(Rc<Expr>),
+    Grouping(Box<Expr>),
     Unary {
         operator: Token,
-        right: Rc<Expr>,
+        right: Box<Expr>,
     },
     Binary {
-        left: Rc<Expr>,
+        left: Box<Expr>,
         operator: Token,
-        right: Rc<Expr>,
+        right: Box<Expr>,
     },
 }
 
@@ -51,6 +51,7 @@ impl fmt::Display for Expr {
 #[derive(Debug, PartialEq)]
 pub enum Stmt {
     Expr(Expr),
+    If { cond: Expr, then_branch: Box<Stmt>, else_branch: Option<Box<Stmt>> },
     Print(Expr),
     VarDecl { name: String, value: Option<Expr> },
     Block(Vec<Stmt>),
@@ -129,12 +130,14 @@ impl<'a> Parser<'a> {
     }
 
     // statement → exprStmt
+    //           | ifStmt
     //           | printStmt
     //           | block ;
     fn statement(&mut self) -> Result<Stmt, Error> {
         use TokenKind::*;
 
-        match self.match_token(&[Print, LeftBrace]).map(|t| t.kind()) {
+        match self.match_token(&[If, Print, LeftBrace]).map(|t| t.kind()) {
+            Some(If) => self.if_stmt(),
             Some(Print) => self.print_stmt(),
             Some(LeftBrace) => self.block(),
             _ => self.expr_stmt(),
@@ -149,6 +152,25 @@ impl<'a> Parser<'a> {
         self.next_assert(Semicolon, "Expect ';' after value")?;
 
         Ok(Stmt::Expr(expr))
+    }
+
+    // ifStmt → "if" "(" expression ")" statement
+    //        ( "else" statement )? ;
+    fn if_stmt(&mut self) -> Result<Stmt, Error> {
+        use TokenKind::*;
+
+        // "if" already matched in Parser::statement
+        self.next_assert(LeftParen, "Expect '(' after if")?;
+        let cond = self.expression()?;
+        self.next_assert(RightParen, "Expect ')' after condition")?;
+
+        let then_branch = Box::new(self.statement()?);
+        let else_branch = match self.match_token(&[Else]) {
+            Some(_) => Some(Box::new(self.statement()?)),
+            None => None,
+        };
+
+        Ok(Stmt::If { cond, then_branch, else_branch })
     }
 
     // printStmt → "print" expression ";" ;
@@ -187,7 +209,7 @@ impl<'a> Parser<'a> {
             match expr {
                 Expr::Variable(t) => Ok(Expr::Assign {
                     name: t,
-                    value: Rc::new(value),
+                    value: Box::new(value),
                 }),
                 // Compile-time error on purpose, opposed to the book
                 _ => Err(Error::new("Invalid assignment target", offset)),
@@ -233,7 +255,7 @@ impl<'a> Parser<'a> {
         if let Some(op) = self.match_token(&[Bang, Minus]) {
             Ok(Expr::Unary {
                 operator: op.clone(),
-                right: Rc::new(self.unary()?),
+                right: Box::new(self.unary()?),
             })
         } else {
             self.primary()
@@ -260,7 +282,7 @@ impl<'a> Parser<'a> {
                     let expr = self.expression()?;
                     self.next_assert(RightParen, "Expect ')' after expression")?;
 
-                    Ok(Expr::Grouping(Rc::new(expr)))
+                    Ok(Expr::Grouping(Box::new(expr)))
                 }
                 Identifier => self.next_ok(Expr::Variable(token.clone())),
                 _ => Err(Error::new("Unexpected token", token.offset())),
@@ -316,9 +338,9 @@ impl<'a> Parser<'a> {
 
         while let Some(op) = self.match_token(kinds) {
             expr = Expr::Binary {
-                left: Rc::new(expr),
+                left: Box::new(expr),
                 operator: op.clone(),
-                right: Rc::new(gen(self)?),
+                right: Box::new(gen(self)?),
             };
         }
 
@@ -414,7 +436,7 @@ mod tests {
         let (stmts, errors) = parser.parse();
 
         assert_eq!(errors.len(), 0);
-        assert_eq!(stmts, vec![Stmt::Expr(Expr::Grouping(Rc::new(Expr::Nil)))]);
+        assert_eq!(stmts, vec![Stmt::Expr(Expr::Grouping(Box::new(Expr::Nil)))]);
     }
 
     // #[test]

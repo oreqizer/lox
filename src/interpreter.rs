@@ -43,6 +43,18 @@ impl PartialEq for Value {
     }
 }
 
+impl Value {
+    fn is_truthy(&self) -> bool {
+        use Value::*;
+        
+        match self {
+            Nil => false,
+            Boolean(b) => *b,
+            _ => true,
+        }
+    }
+}
+
 struct Environment {
     vars: HashMap<String, Option<Value>>,
     enclosing: Option<Box<Environment>>,
@@ -112,6 +124,9 @@ impl Interpreter {
             Stmt::Expr(e) => {
                 self.visit_expr(e)?;
             }
+            Stmt::If { cond, then_branch, else_branch } => {
+                self.visit_if(cond, then_branch, else_branch.as_deref())?;
+            }
             Stmt::Print(e) => {
                 self.visit_print_stmt(e)?;
             }
@@ -149,6 +164,16 @@ impl Interpreter {
                 operator,
                 right,
             } => self.visit_binary_expr(left, operator, right),
+        }
+    }
+
+    fn visit_if(&mut self, cond: &Expr, then_branch: &Stmt, else_branch: Option<&Stmt>) -> Result<(), Error> {
+        if self.visit_expr(cond)?.is_truthy() {
+            self.visit_stmt(then_branch)
+        } else if let Some(stmt) = else_branch {
+            self.visit_stmt(stmt)
+        } else {
+            Ok(())
         }
     }
 
