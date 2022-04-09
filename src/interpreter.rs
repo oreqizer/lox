@@ -44,7 +44,7 @@ impl PartialEq for Value {
 }
 
 struct Environment {
-    vars: HashMap<String, Value>,
+    vars: HashMap<String, Option<Value>>,
     enclosing: Option<Box<Environment>>,
 }
 
@@ -56,27 +56,30 @@ impl Environment {
         }
     }
 
-    fn define(&mut self, name: &str, value: Value) {
+    fn define(&mut self, name: &str, value: Option<Value>) {
         self.vars.insert(name.to_string(), value);
     }
 
-    fn assign(&mut self, name: &str, value: Value) -> Option<()> {
+    fn assign(&mut self, name: &str, value: Value) -> Result<(), String> {
         if self.vars.contains_key(name) {
-            self.vars.insert(name.to_string(), value);
-            Some(())
+            self.vars.insert(name.to_string(), Some(value));
+            Ok(())
         } else {
-            self.enclosing.as_mut().and_then(|e| e.assign(name, value))
+            match self.enclosing.as_mut() {
+                Some(e) => e.assign(name, value),
+                None => Err("Assign to undefined variable".to_string()),
+            }
         }
     }
 
-    fn get(&self, name: &str) -> Option<Value> {
-        if let Some(value) = self.vars.get(name) {
-            Some(value.clone())
-        } else {
-            match self.enclosing.as_ref().map(|e| e.get(name)) {
+    fn get(&self, name: &str) -> Result<Value, String> {
+        match self.vars.get(name) {
+            Some(Some(v)) => Ok(v.clone()),
+            Some(None) => Err("Access of uninitialized variable".to_string()),
+            None => match self.enclosing.as_ref().map(|e| e.get(name)) {
                 Some(v) => v,
-                None => None,
-            }
+                None => Err("Undefined variable".to_string()),
+            },
         }
     }
 }
@@ -113,7 +116,7 @@ impl Interpreter {
                 self.visit_print_stmt(e)?;
             }
             Stmt::VarDecl { name, value } => {
-                self.visit_var_stmt(name, value)?;
+                self.visit_var_stmt(name, value.as_ref())?;
             }
             Stmt::Block(stmts) => {
                 self.visit_block(stmts)?;
@@ -127,12 +130,12 @@ impl Interpreter {
             Expr::Variable(token) => self
                 .env()
                 .get(token.literal_identifier())
-                .ok_or(Error::new("Undefined variable", token.offset())),
+                .map_err(|msg| Error::new(&msg, token.offset())),
             Expr::Assign { name, value } => {
                 let value = self.visit_expr(value.as_ref())?;
                 self.env()
                     .assign(name.literal_identifier(), value.clone())
-                    .ok_or(Error::new("Undefined variable", name.offset()))?;
+                    .map_err(|msg| Error::new(&msg, name.offset()))?;
                 Ok(value)
             }
             Expr::Nil => Ok(Value::Nil),
@@ -154,9 +157,13 @@ impl Interpreter {
         Ok(())
     }
 
-    fn visit_var_stmt(&mut self, name: &str, expr: &Expr) -> Result<(), Error> {
-        let value = self.visit_expr(expr)?;
-        self.env().define(name, value.clone());
+    fn visit_var_stmt(&mut self, name: &str, expr: Option<&Expr>) -> Result<(), Error> {
+        let value = match expr {
+            Some(expr) => Some(self.visit_expr(expr)?),
+            None => None,
+        };
+
+        self.env().define(name, value);
         Ok(())
     }
 

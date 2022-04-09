@@ -52,7 +52,7 @@ impl fmt::Display for Expr {
 pub enum Stmt {
     Expr(Expr),
     Print(Expr),
-    VarDecl { name: String, value: Expr },
+    VarDecl { name: String, value: Option<Expr> },
     Block(Vec<Stmt>),
 }
 
@@ -118,10 +118,9 @@ impl<'a> Parser<'a> {
             .literal_identifier()
             .to_string();
 
-        let value = if let Some(_) = self.match_token(&[Equal]) {
-            self.expression()?
-        } else {
-            Expr::Nil
+        let value = match self.match_token(&[Equal]) {
+            Some(_) => Some(self.expression()?),
+            None => None,
         };
 
         self.next_assert(Semicolon, "Expect ';' after value")?;
