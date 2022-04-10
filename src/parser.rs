@@ -6,6 +6,11 @@ use crate::lexer::{Token, TokenKind};
 #[derive(Debug, PartialEq)]
 pub enum Expr {
     Variable(Token),
+    Logical {
+        left: Box<Expr>,
+        operator: Token,
+        right: Box<Expr>,
+    },
     Assign {
         name: Token,
         value: Box<Expr>,
@@ -32,6 +37,11 @@ impl fmt::Display for Expr {
 
         match self {
             Variable(ref s) => write!(f, "{}", s),
+            Logical {
+                left,
+                operator,
+                right,
+            } => write!(f, "({} {} {})", left, operator, right),
             Assign { ref name, value } => write!(f, "{} = {}", name, value),
             Boolean(b) => write!(f, "{}", b),
             Nil => write!(f, "nil"),
@@ -51,9 +61,16 @@ impl fmt::Display for Expr {
 #[derive(Debug, PartialEq)]
 pub enum Stmt {
     Expr(Expr),
-    If { cond: Expr, then_branch: Box<Stmt>, else_branch: Option<Box<Stmt>> },
+    If {
+        cond: Expr,
+        then_branch: Box<Stmt>,
+        else_branch: Option<Box<Stmt>>,
+    },
     Print(Expr),
-    VarDecl { name: String, value: Option<Expr> },
+    VarDecl {
+        name: String,
+        value: Option<Expr>,
+    },
     Block(Vec<Stmt>),
 }
 
@@ -170,7 +187,11 @@ impl<'a> Parser<'a> {
             None => None,
         };
 
-        Ok(Stmt::If { cond, then_branch, else_branch })
+        Ok(Stmt::If {
+            cond,
+            then_branch,
+            else_branch,
+        })
     }
 
     // printStmt → "print" expression ";" ;
@@ -196,11 +217,11 @@ impl<'a> Parser<'a> {
     }
 
     // assignment → IDENTIFIER "=" assignment
-    //            | equality ;
+    //            | logic_or ;
     fn assignment(&mut self) -> Result<Expr, Error> {
         use TokenKind::*;
 
-        let expr = self.equality()?;
+        let expr = self.logic_or()?;
 
         if let Some(eq) = self.match_token(&[Equal]) {
             let offset = eq.offset();
@@ -217,6 +238,40 @@ impl<'a> Parser<'a> {
         } else {
             Ok(expr)
         }
+    }
+
+    // logic_or → logic_and ( "or" logic_and )* ;
+    fn logic_or(&mut self) -> Result<Expr, Error> {
+        use TokenKind::*;
+
+        let mut expr = self.logic_and()?;
+
+        while let Some(t) = self.match_token(&[Or]) {
+            expr = Expr::Logical {
+                left: Box::new(expr),
+                operator: t.clone(),
+                right: Box::new(self.logic_and()?),
+            }
+        }
+
+        Ok(expr)
+    }
+
+    // logic_and → equality ( "and" equality )* ;
+    fn logic_and(&mut self) -> Result<Expr, Error> {
+        use TokenKind::*;
+
+        let mut expr = self.equality()?;
+
+        while let Some(t) = self.match_token(&[And]) {
+            expr = Expr::Logical {
+                left: Box::new(expr),
+                operator: t.clone(),
+                right: Box::new(self.equality()?),
+            }
+        }
+
+        Ok(expr)
     }
 
     // equality → comparison ( ( "!=" | "==" ) comparison )* ;

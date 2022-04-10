@@ -46,7 +46,7 @@ impl PartialEq for Value {
 impl Value {
     fn is_truthy(&self) -> bool {
         use Value::*;
-        
+
         match self {
             Nil => false,
             Boolean(b) => *b,
@@ -124,7 +124,11 @@ impl Interpreter {
             Stmt::Expr(e) => {
                 self.visit_expr(e)?;
             }
-            Stmt::If { cond, then_branch, else_branch } => {
+            Stmt::If {
+                cond,
+                then_branch,
+                else_branch,
+            } => {
                 self.visit_if(cond, then_branch, else_branch.as_deref())?;
             }
             Stmt::Print(e) => {
@@ -146,6 +150,11 @@ impl Interpreter {
                 .env()
                 .get(token.literal_identifier())
                 .map_err(|msg| Error::new(&msg, token.offset())),
+            Expr::Logical {
+                left,
+                operator,
+                right,
+            } => self.visit_logical_expr(left, operator, right),
             Expr::Assign { name, value } => {
                 let value = self.visit_expr(value.as_ref())?;
                 self.env()
@@ -167,7 +176,12 @@ impl Interpreter {
         }
     }
 
-    fn visit_if(&mut self, cond: &Expr, then_branch: &Stmt, else_branch: Option<&Stmt>) -> Result<(), Error> {
+    fn visit_if(
+        &mut self,
+        cond: &Expr,
+        then_branch: &Stmt,
+        else_branch: Option<&Stmt>,
+    ) -> Result<(), Error> {
         if self.visit_expr(cond)?.is_truthy() {
             self.visit_stmt(then_branch)
         } else if let Some(stmt) = else_branch {
@@ -213,6 +227,26 @@ impl Interpreter {
     #[inline]
     fn env(&mut self) -> &mut Environment {
         self.env.as_mut().unwrap()
+    }
+
+    #[inline]
+    fn visit_logical_expr(
+        &mut self,
+        left: &Expr,
+        op: &Token,
+        right: &Expr,
+    ) -> Result<Value, Error> {
+        use TokenKind::*;
+
+        let left = self.visit_expr(left)?;
+
+        match op.kind() {
+            Or if left.is_truthy() => Ok(left),
+            And if !left.is_truthy() => Ok(left),
+            Or | And => self.visit_expr(right),
+            // Should not happen™️
+            _ => Err(Error::new("Unexpected logical operator", op.offset())),
+        }
     }
 
     #[inline]
