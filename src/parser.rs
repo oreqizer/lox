@@ -236,7 +236,10 @@ impl<'a> Parser<'a> {
             body = Stmt::Block(vec![body, Stmt::Expr(e)]);
         }
 
-        body = Stmt::Block(vec![Stmt::While { cond, body: Box::new(body) }]);
+        body = Stmt::Block(vec![Stmt::While {
+            cond,
+            body: Box::new(body),
+        }]);
 
         if let Some(s) = init {
             body = Stmt::Block(vec![s, body]);
