@@ -66,6 +66,10 @@ pub enum Stmt {
         then_branch: Box<Stmt>,
         else_branch: Option<Box<Stmt>>,
     },
+    While {
+        cond: Expr,
+        body: Box<Stmt>,
+    },
     Print(Expr),
     VarDecl {
         name: String,
@@ -148,13 +152,15 @@ impl<'a> Parser<'a> {
 
     // statement → exprStmt
     //           | ifStmt
+    //           | whileStmt
     //           | printStmt
     //           | block ;
     fn statement(&mut self) -> Result<Stmt, Error> {
         use TokenKind::*;
 
-        match self.match_token(&[If, Print, LeftBrace]).map(|t| t.kind()) {
+        match self.match_token(&[If, Print, While, LeftBrace]).map(|t| t.kind()) {
             Some(If) => self.if_stmt(),
+            Some(While) => self.while_stmt(),
             Some(Print) => self.print_stmt(),
             Some(LeftBrace) => self.block(),
             _ => self.expr_stmt(),
@@ -192,6 +198,19 @@ impl<'a> Parser<'a> {
             then_branch,
             else_branch,
         })
+    }
+
+    // whileStmt -> "while" "(" expression ")" statement ;
+    fn while_stmt(&mut self) -> Result<Stmt, Error> {
+        use TokenKind::*;
+
+        // "while" already matched in Parser::statement
+        self.next_assert(LeftParen, "Expect '(' after if")?;
+        let cond = self.expression()?;
+        self.next_assert(RightParen, "Expect ')' after condition")?;
+        let body = Box::new(self.statement()?);
+
+        Ok(Stmt::While { cond, body })
     }
 
     // printStmt → "print" expression ";" ;

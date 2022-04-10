@@ -131,6 +131,9 @@ impl Interpreter {
             } => {
                 self.visit_if(cond, then_branch, else_branch.as_deref())?;
             }
+            Stmt::While { cond, body } => {
+                self.visit_while(cond, body)?;
+            }
             Stmt::Print(e) => {
                 self.visit_print_stmt(e)?;
             }
@@ -189,6 +192,17 @@ impl Interpreter {
         } else {
             Ok(())
         }
+    }
+
+    fn visit_while(
+        &mut self,
+        cond: &Expr,
+        body: &Stmt,
+    ) -> Result<(), Error> {
+        while self.visit_expr(cond)?.is_truthy() {
+            self.visit_stmt(body)?;
+        }
+        Ok(())
     }
 
     fn visit_print_stmt(&mut self, expr: &Expr) -> Result<(), Error> {
