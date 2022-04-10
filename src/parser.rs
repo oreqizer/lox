@@ -151,6 +151,7 @@ impl<'a> Parser<'a> {
     }
 
     // statement → exprStmt
+    //           | forStmt
     //           | ifStmt
     //           | whileStmt
     //           | printStmt
@@ -158,7 +159,11 @@ impl<'a> Parser<'a> {
     fn statement(&mut self) -> Result<Stmt, Error> {
         use TokenKind::*;
 
-        match self.match_token(&[If, Print, While, LeftBrace]).map(|t| t.kind()) {
+        match self
+            .match_token(&[For, If, Print, While, LeftBrace])
+            .map(|t| t.kind())
+        {
+            Some(For) => self.for_stmt(),
             Some(If) => self.if_stmt(),
             Some(While) => self.while_stmt(),
             Some(Print) => self.print_stmt(),
@@ -182,7 +187,7 @@ impl<'a> Parser<'a> {
     fn if_stmt(&mut self) -> Result<Stmt, Error> {
         use TokenKind::*;
 
-        // "if" already matched in Parser::statement
+        // "if" already matched
         self.next_assert(LeftParen, "Expect '(' after if")?;
         let cond = self.expression()?;
         self.next_assert(RightParen, "Expect ')' after condition")?;
@@ -200,12 +205,52 @@ impl<'a> Parser<'a> {
         })
     }
 
+    // forStmt → "for" "(" ( varDecl | exprStmt | ";" )
+    //            expression? ";"
+    //            expression? ")" statement ;
+    fn for_stmt(&mut self) -> Result<Stmt, Error> {
+        use TokenKind::*;
+
+        // "for" already matched
+        self.next_assert(LeftParen, "Expect '(' after for")?;
+        let init = match self.match_token(&[Semicolon, Var]).map(|t| t.kind()) {
+            Some(Semicolon) => None,
+            Some(Var) => Some(self.var_decl()?),
+            _ => Some(self.expr_stmt()?),
+        };
+
+        let cond = match self.tokens.peek().map(|t| t.kind()) {
+            Some(Semicolon) => Expr::Boolean(true),
+            _ => self.expression()?,
+        };
+        self.next_assert(Semicolon, "Expect ';' after loop condition")?;
+
+        let incr = match self.tokens.peek().map(|t| t.kind()) {
+            Some(RightParen) => None,
+            _ => Some(self.expression()?),
+        };
+        self.next_assert(RightParen, "Expect ')' after loop increment")?;
+        let mut body = self.statement()?;
+
+        if let Some(e) = incr {
+            body = Stmt::Block(vec![body, Stmt::Expr(e)]);
+        }
+
+        body = Stmt::Block(vec![Stmt::While { cond, body: Box::new(body) }]);
+
+        if let Some(s) = init {
+            body = Stmt::Block(vec![s, body]);
+        }
+
+        Ok(body)
+    }
+
     // whileStmt -> "while" "(" expression ")" statement ;
     fn while_stmt(&mut self) -> Result<Stmt, Error> {
         use TokenKind::*;
 
-        // "while" already matched in Parser::statement
-        self.next_assert(LeftParen, "Expect '(' after if")?;
+        // "while" already matched
+        self.next_assert(LeftParen, "Expect '(' after while")?;
         let cond = self.expression()?;
         self.next_assert(RightParen, "Expect ')' after condition")?;
         let body = Box::new(self.statement()?);
@@ -217,7 +262,7 @@ impl<'a> Parser<'a> {
     fn print_stmt(&mut self) -> Result<Stmt, Error> {
         use TokenKind::*;
 
-        // "print" already matched in Parser::statement
+        // "print" already matched
         let expr = self.expression()?;
         self.next_assert(Semicolon, "Expect ';' after value")?;
 
@@ -226,7 +271,7 @@ impl<'a> Parser<'a> {
 
     // block → "{" declaration* "}" ;
     fn block(&mut self) -> Result<Stmt, Error> {
-        // "{" already matched in Parser::statement
+        // "{" already matched
         Ok(Stmt::Block(self.make_block()?))
     }
 
