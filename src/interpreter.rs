@@ -88,7 +88,7 @@ impl Function {
     fn call(&self, it: &mut Interpreter, args: &[Var]) -> Result<Var, Error> {
         let env = Rc::new(RefCell::new(Environment::new(&it.globals)));
         for (i, param) in self.params.iter().enumerate() {
-            let arg = args.get(i).unwrap();
+            let arg = args.get(i).ok_or(Error::new("Arity mismatch", self.offset))?;
 
             env.as_ref()
                 .borrow_mut()
