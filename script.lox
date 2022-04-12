@@ -1,14 +1,8 @@
-// this is a comment
-(( )){} // grouping stuff
-!*+-/=<> <= == // operators
-if 5 > 133 {
-    print "omg lol wtf";
-}
+var a = 0;
+var temp;
 
-class Kek {
-    lol = 1337;
-
-    init(v) {
-        lol = v;
-    }
+for (var b = 1; a < 10000; b = temp + b) {
+  print a;
+  temp = a;
+  a = b;
 }

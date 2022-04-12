@@ -1,81 +1,64 @@
-use std::{fmt, iter::Peekable, slice::Iter};
+use std::{iter::Peekable, slice::Iter};
 
 use crate::error::Error;
 use crate::lexer::{Token, TokenKind};
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Expr {
-    Variable(Token),
-    Logical {
-        left: Box<Expr>,
-        operator: Token,
-        right: Box<Expr>,
-    },
     Assign {
         name: Token,
         value: Box<Expr>,
-    },
-    Boolean(bool),
-    Nil,
-    Number(f64),
-    String(String),
-    Grouping(Box<Expr>),
-    Unary {
-        operator: Token,
-        right: Box<Expr>,
     },
     Binary {
         left: Box<Expr>,
         operator: Token,
         right: Box<Expr>,
     },
+    Boolean(bool),
+    Call {
+        callee: Box<Expr>,
+        paren: Token,
+        args: Vec<Expr>,
+    },
+    Grouping(Box<Expr>),
+    Logical {
+        left: Box<Expr>,
+        operator: Token,
+        right: Box<Expr>,
+    },
+    Nil,
+    Number(f64),
+    String(String),
+    Unary {
+        operator: Token,
+        right: Box<Expr>,
+    },
+    Variable(Token),
 }
 
-impl fmt::Display for Expr {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        use Expr::*;
-
-        match self {
-            Variable(ref s) => write!(f, "{}", s),
-            Logical {
-                left,
-                operator,
-                right,
-            } => write!(f, "({} {} {})", left, operator, right),
-            Assign { ref name, value } => write!(f, "{} = {}", name, value),
-            Boolean(b) => write!(f, "{}", b),
-            Nil => write!(f, "nil"),
-            Number(n) => write!(f, "{}", n),
-            String(ref s) => write!(f, "{}", s),
-            Grouping(expr) => write!(f, "({})", expr),
-            Unary { operator, right } => write!(f, "{}{}", operator, right),
-            Binary {
-                left,
-                operator,
-                right,
-            } => write!(f, "({} {} {})", left, operator, right),
-        }
-    }
-}
-
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Stmt {
+    Block(Vec<Stmt>),
     Expr(Expr),
+    Function {
+        name: Token,
+        params: Vec<Token>,
+        body: Vec<Stmt>,
+    },
     If {
         cond: Expr,
         then_branch: Box<Stmt>,
         else_branch: Option<Box<Stmt>>,
-    },
-    While {
-        cond: Expr,
-        body: Box<Stmt>,
     },
     Print(Expr),
     VarDecl {
         name: String,
         value: Option<Expr>,
     },
-    Block(Vec<Stmt>),
+    While {
+        cond: Expr,
+        body: Box<Stmt>,
+    },
 }
 
 pub struct Parser<'a> {
@@ -118,23 +101,32 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    // declaration → varDecl
+    // declaration → funDecl
+    //             | varDecl
     //             | statement ;
     fn declaration(&mut self) -> Result<Stmt, Error> {
         use TokenKind::*;
 
-        if let Some(_) = self.match_token(&[Var]) {
-            self.var_decl()
-        } else {
-            self.statement()
+        match self.match_token(&[Var]).map(|t| t.kind()) {
+            Some(Fun) => self.fun_decl(),
+            Some(Var) => self.var_decl(),
+            _ => self.statement(),
         }
+    }
+
+    // funDecl → "fun" function ;
+    fn fun_decl(&mut self) -> Result<Stmt, Error> {
+        use TokenKind::*;
+
+        // "fun" already matched
+        self.make_function("function")
     }
 
     // varDecl → "var" IDENTIFIER ( "=" expression )? ";" ;
     fn var_decl(&mut self) -> Result<Stmt, Error> {
         use TokenKind::*;
 
-        // "var" already matched in Parser::declaration
+        // "var" already matched
         let name = self
             .next_assert(Identifier, "Expect identifier after 'var'")?
             .literal_identifier()
@@ -370,7 +362,7 @@ impl<'a> Parser<'a> {
     }
 
     // unary → ( "!" | "-" ) unary
-    //       | primary ;
+    //       | call ;
     fn unary(&mut self) -> Result<Expr, Error> {
         use TokenKind::*;
 
@@ -380,8 +372,54 @@ impl<'a> Parser<'a> {
                 right: Box::new(self.unary()?),
             })
         } else {
-            self.primary()
+            self.call()
         }
+    }
+
+    // call      → primary ( "(" arguments? ")" )* ;
+    // arguments → expression ( "," expression )* ;
+    fn call(&mut self) -> Result<Expr, Error> {
+        use TokenKind::*;
+
+        let mut expr = self.primary()?;
+
+        loop {
+            match self.match_token(&[LeftParen]) {
+                Some(t) => {
+                    let paren = t.clone();
+                    let mut args = Vec::new();
+
+                    if !self.next_check(RightParen) {
+                        args.push(self.expression()?);
+
+                        if args.len() >= 255 {
+                            // FIXME:
+                            // don't bail here, just report error, need a way for non-fatal errors,
+                            // like self.errors.push(Error)
+                            return Err(Error::new(
+                                "Can't have more than 255 arguments",
+                                self.tokens.peek().map(|t| t.offset()).unwrap_or_default(),
+                            ));
+                        }
+
+                        while let Some(Comma) = self.match_token(&[Comma]).map(|t| t.kind()) {
+                            args.push(self.expression()?);
+                        }
+                    }
+
+                    self.next_assert(RightParen, "Expect ')' after argument list")?;
+
+                    expr = Expr::Call {
+                        callee: Box::new(expr),
+                        paren,
+                        args,
+                    };
+                }
+                None => break,
+            }
+        }
+
+        Ok(expr)
     }
 
     // primary → "true" | "false" | "nil"
@@ -486,11 +524,62 @@ impl<'a> Parser<'a> {
         Ok(stmts)
     }
 
+    // function   → IDENTIFIER "(" parameters? ")" block ;
+    // parameters → IDENTIFIER ( "," IDENTIFIER )* ;
+    #[inline]
+    fn make_function(&mut self, kind: &str) -> Result<Stmt, Error> {
+        use TokenKind::*;
+
+        let name = self.next_assert(Identifier, &format!("Expect {kind} name"))?.clone();
+
+        self.next_assert(LeftParen, &format!("Expect '(' after {kind} name"))?;
+
+        let mut params = Vec::new();
+        if !self.next_check(RightParen) {
+            while let Some(t) = self.match_token(&[Comma]) {
+                match t.kind() {
+                    Comma => {
+                        params.push(
+                            self.next_assert(Identifier, "Expect parameter name")?
+                                .clone(),
+                        );
+                    }
+                    _ => break,
+                }
+
+                if params.len() >= 255 {
+                    return Err(Error::new(
+                        "Can't have more than 255 parameters",
+                        self.tokens.peek().map(|t| t.offset()).unwrap_or_default(),
+                    ));
+                }
+            }
+        }
+
+        self.next_assert(RightParen, "Expect ')' after parameters")?;
+        self.next_assert(LeftBrace, &format!("Expect '{{' before {kind} body"))?;
+
+        let body = match self.block()? {
+            Stmt::Block(v) => Ok(v),
+            _ => Err(Error::new("Expect block", self.tokens.peek().map(|t| t.offset()).unwrap_or_default()))
+        }?;
+
+        Ok(Stmt::Function { name, params, body })
+    }
+
     #[inline]
     fn next_ok(&mut self, expr: Expr) -> Result<Expr, Error> {
         self.tokens.next();
 
         Ok(expr)
+    }
+
+    #[inline]
+    fn next_check(&mut self, kind: TokenKind) -> bool {
+        match self.tokens.peek() {
+            Some(t) => t.kind() == kind,
+            None => false,
+        }
     }
 
     #[inline]
