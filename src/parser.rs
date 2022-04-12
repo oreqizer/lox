@@ -107,7 +107,7 @@ impl<'a> Parser<'a> {
     fn declaration(&mut self) -> Result<Stmt, Error> {
         use TokenKind::*;
 
-        match self.match_token(&[Var]).map(|t| t.kind()) {
+        match self.match_token(&[Fun, Var]).map(|t| t.kind()) {
             Some(Fun) => self.fun_decl(),
             Some(Var) => self.var_decl(),
             _ => self.statement(),
@@ -116,8 +116,6 @@ impl<'a> Parser<'a> {
 
     // funDecl → "fun" function ;
     fn fun_decl(&mut self) -> Result<Stmt, Error> {
-        use TokenKind::*;
-
         // "fun" already matched
         self.make_function("function")
     }
@@ -530,12 +528,19 @@ impl<'a> Parser<'a> {
     fn make_function(&mut self, kind: &str) -> Result<Stmt, Error> {
         use TokenKind::*;
 
-        let name = self.next_assert(Identifier, &format!("Expect {kind} name"))?.clone();
+        let name = self
+            .next_assert(Identifier, &format!("Expect {kind} name"))?
+            .clone();
 
         self.next_assert(LeftParen, &format!("Expect '(' after {kind} name"))?;
 
         let mut params = Vec::new();
         if !self.next_check(RightParen) {
+            params.push(
+                self.next_assert(Identifier, "Expect parameter name")?
+                    .clone(),
+            );
+
             while let Some(t) = self.match_token(&[Comma]) {
                 match t.kind() {
                     Comma => {
@@ -561,7 +566,10 @@ impl<'a> Parser<'a> {
 
         let body = match self.block()? {
             Stmt::Block(v) => Ok(v),
-            _ => Err(Error::new("Expect block", self.tokens.peek().map(|t| t.offset()).unwrap_or_default()))
+            _ => Err(Error::new(
+                "Expect block",
+                self.tokens.peek().map(|t| t.offset()).unwrap_or_default(),
+            )),
         }?;
 
         Ok(Stmt::Function { name, params, body })
