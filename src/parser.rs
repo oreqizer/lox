@@ -51,6 +51,7 @@ pub enum Stmt {
         else_branch: Option<Box<Stmt>>,
     },
     Print(Expr),
+    Return(Expr),
     VarDecl {
         name: String,
         value: Option<Expr>,
@@ -144,18 +145,20 @@ impl<'a> Parser<'a> {
     //           | forStmt
     //           | ifStmt
     //           | whileStmt
+    //           | returnStmt
     //           | printStmt
     //           | block ;
     fn statement(&mut self) -> Result<Stmt, Error> {
         use TokenKind::*;
 
         match self
-            .match_token(&[For, If, Print, While, LeftBrace])
+            .match_token(&[For, If, Return, Print, While, LeftBrace])
             .map(|t| t.kind())
         {
             Some(For) => self.for_stmt(),
             Some(If) => self.if_stmt(),
             Some(While) => self.while_stmt(),
+            Some(Return) => self.return_stmt(),
             Some(Print) => self.print_stmt(),
             Some(LeftBrace) => self.block(),
             _ => self.expr_stmt(),
@@ -249,6 +252,20 @@ impl<'a> Parser<'a> {
         let body = Box::new(self.statement()?);
 
         Ok(Stmt::While { cond, body })
+    }
+
+    // returnStmt -> "return" expression? ";" ;
+    fn return_stmt(&mut self) -> Result<Stmt, Error> {
+        use TokenKind::*;
+
+        // "return" already matched
+        let expr = match self.next_peek() {
+            Some(Semicolon) => Expr::Nil,
+            _ => self.expression()?,
+        };
+        self.next_assert(Semicolon, "Expect ';' after return")?;
+
+        Ok(Stmt::Return(expr))
     }
 
     // printStmt → "print" expression ";" ;
@@ -580,6 +597,11 @@ impl<'a> Parser<'a> {
         self.tokens.next();
 
         Ok(expr)
+    }
+
+    #[inline]
+    fn next_peek(&mut self) -> Option<TokenKind> {
+        self.tokens.peek().map(|t| t.kind())
     }
 
     #[inline]

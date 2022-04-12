@@ -82,22 +82,28 @@ struct Function {
 
 impl Function {
     fn new(name: String, params: Vec<String>, body: Vec<Stmt>, offset: usize) -> Self {
-        Self { name, params, body, offset }
+        Self {
+            name,
+            params,
+            body,
+            offset,
+        }
     }
 
     fn call(&self, it: &mut Interpreter, args: &[Var]) -> Result<Var, Error> {
         let env = Rc::new(RefCell::new(Environment::new(&it.globals)));
         for (i, param) in self.params.iter().enumerate() {
-            let arg = args.get(i).ok_or(Error::new("Arity mismatch", self.offset))?;
+            let arg = args
+                .get(i)
+                .ok_or(Error::new("Arity mismatch", self.offset))?;
 
-            env.as_ref()
-                .borrow_mut()
-                .define(&param, Some(arg.clone()));
+            env.as_ref().borrow_mut().define(&param, Some(arg.clone()));
         }
 
-        it.visit_block(&env, &self.body)?;
-
-        Ok(Var::Value(Value::Nil))
+        match it.visit_block(&env, &self.body)? {
+            Some(val) => Ok(val),
+            None => Ok(Var::Value(Value::Nil)),
+        }
     }
 }
 
@@ -132,6 +138,8 @@ impl fmt::Display for Var {
         }
     }
 }
+
+type Return<T> = Option<T>;
 
 struct Environment {
     vars: HashMap<String, Option<Var>>,
@@ -211,15 +219,16 @@ impl Interpreter {
         }
     }
 
-    fn visit_stmt(&mut self, stmt: &Stmt) -> Result<(), Error> {
+    fn visit_stmt(&mut self, stmt: &Stmt) -> Result<Return<Var>, Error> {
         match stmt {
             Stmt::Block(stmts) => {
                 let env = Rc::new(RefCell::new(Environment::new(&self.env)));
 
-                self.visit_block(&env, stmts)?;
+                self.visit_block(&env, stmts)
             }
             Stmt::Expr(e) => {
                 self.visit_expr(e)?;
+                Ok(None)
             }
             Stmt::Function { name, params, body } => {
                 let fun = Function::new(
@@ -232,26 +241,27 @@ impl Interpreter {
                 self.env
                     .as_ref()
                     .borrow_mut()
-                    .define(name.literal_identifier(), Some(Var::Function(fun)))
+                    .define(name.literal_identifier(), Some(Var::Function(fun)));
+                Ok(None)
             }
             Stmt::If {
                 cond,
                 then_branch,
                 else_branch,
-            } => {
-                self.visit_if(cond, then_branch, else_branch.as_deref())?;
-            }
+            } => self.visit_if(cond, then_branch, else_branch.as_deref()),
             Stmt::Print(e) => {
                 self.visit_print_stmt(e)?;
+                Ok(None)
+            }
+            Stmt::Return(e) => {
+                return Ok(Some(self.visit_expr(e)?));
             }
             Stmt::VarDecl { name, value } => {
                 self.visit_var_stmt(name, value.as_ref())?;
+                Ok(None)
             }
-            Stmt::While { cond, body } => {
-                self.visit_while(cond, body)?;
-            }
+            Stmt::While { cond, body } => self.visit_while(cond, body),
         }
-        Ok(())
     }
 
     fn visit_expr(&mut self, expr: &Expr) -> Result<Var, Error> {
@@ -302,21 +312,27 @@ impl Interpreter {
         cond: &Expr,
         then_branch: &Stmt,
         else_branch: Option<&Stmt>,
-    ) -> Result<(), Error> {
+    ) -> Result<Return<Var>, Error> {
         if self.visit_expr(cond)?.is_truthy() {
-            self.visit_stmt(then_branch)
+            if let Some(v) = self.visit_stmt(then_branch)? {
+                return Ok(Some(v));
+            }
         } else if let Some(stmt) = else_branch {
-            self.visit_stmt(stmt)
-        } else {
-            Ok(())
+            if let Some(v) = self.visit_stmt(stmt)? {
+                return Ok(Some(v));
+            }
         }
+
+        Ok(None)
     }
 
-    fn visit_while(&mut self, cond: &Expr, body: &Stmt) -> Result<(), Error> {
+    fn visit_while(&mut self, cond: &Expr, body: &Stmt) -> Result<Return<Var>, Error> {
         while self.visit_expr(cond)?.is_truthy() {
-            self.visit_stmt(body)?;
+            if let Some(v) = self.visit_stmt(body)? {
+                return Ok(Some(v));
+            }
         }
-        Ok(())
+        Ok(None)
     }
 
     fn visit_print_stmt(&mut self, expr: &Expr) -> Result<(), Error> {
@@ -334,15 +350,23 @@ impl Interpreter {
         Ok(())
     }
 
-    fn visit_block(&mut self, env: &Rc<RefCell<Environment>>, stmts: &[Stmt]) -> Result<(), Error> {
-        let mut res = Ok(());
+    fn visit_block(
+        &mut self,
+        env: &Rc<RefCell<Environment>>,
+        stmts: &[Stmt],
+    ) -> Result<Return<Var>, Error> {
+        let mut res = Ok(None);
 
         let previous = Rc::clone(&self.env);
         self.env = Rc::clone(env);
         for stmt in stmts {
-            if let Err(e) = self.visit_stmt(stmt) {
-                res = Err(e);
-                break;
+            match self.visit_stmt(stmt) {
+                Ok(Some(v)) => return Ok(Some(v)),
+                Err(e) => {
+                    res = Err(e);
+                    break;
+                }
+                _ => continue,
             }
         }
         self.env = previous;
@@ -393,7 +417,10 @@ impl Interpreter {
             Var::Value(_) => return Err(Error::new("Expression not callable", paren.offset())),
         };
 
-        let args: Vec<_> = args.iter().map(|t| self.visit_expr(t)).collect::<Result<_, _>>()?;
+        let args: Vec<_> = args
+            .iter()
+            .map(|t| self.visit_expr(t))
+            .collect::<Result<_, _>>()?;
 
         callee.call(self, &args)
     }
