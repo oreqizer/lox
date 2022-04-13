@@ -72,12 +72,32 @@ impl Value {
     }
 }
 
-trait Callable {
+trait Callable: CallableClone {
     fn name(&self) -> &str;
     fn offset(&self) -> usize;
     fn call(&self, it: &mut Interpreter, args: &[Rc<Var>]) -> Result<Rc<Var>, Error>;
 }
 
+trait CallableClone {
+    fn clone_box(&self) -> Box<dyn Callable>;
+}
+
+impl<T> CallableClone for T
+where
+    T: 'static + Callable + Clone,
+{
+    fn clone_box(&self) -> Box<dyn Callable> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn Callable> {
+    fn clone(&self) -> Box<dyn Callable> {
+        self.clone_box()
+    }
+}
+
+#[derive(Clone)]
 struct Function {
     name: String,
     params: Vec<String>,
@@ -98,7 +118,7 @@ impl Function {
             name,
             params,
             body,
-            closure: Rc::clone(closure),
+            closure: Rc::new(RefCell::new(Environment::clone(&closure.as_ref().borrow()))),
             offset,
         }
     }
@@ -132,13 +152,33 @@ impl Callable for Function {
     }
 }
 
+trait Callback: Fn() -> Value {
+    fn clone_box(&self) -> Box<dyn Callback>;
+}
+
+impl<T> Callback for T
+where
+    T: 'static + Fn() -> Value + Clone,
+{
+    fn clone_box(&self) -> Box<dyn Callback> {
+        Box::new(self.clone())
+    }
+}
+
+impl Clone for Box<dyn Callback> {
+    fn clone(&self) -> Box<dyn Callback> {
+        self.clone_box()
+    }
+}
+
+#[derive(Clone)]
 struct Native {
     name: String,
-    callback: Box<dyn Fn() -> Value>,
+    callback: Box<dyn Callback>,
 }
 
 impl Native {
-    fn new(name: &str, callback: Box<dyn Fn() -> Value>) -> Self {
+    fn new(name: &str, callback: Box<dyn Callback>) -> Self {
         Self {
             name: name.to_string(),
             callback,
@@ -162,6 +202,7 @@ impl Callable for Native {
     }
 }
 
+#[derive(Clone)]
 enum Var {
     Value(Value),
     Function(Box<dyn Callable>),
@@ -187,6 +228,7 @@ impl fmt::Display for Var {
 
 type Return<T> = Option<T>;
 
+#[derive(Clone)]
 struct Environment {
     vars: HashMap<String, Option<Rc<Var>>>,
     enclosing: Option<Rc<RefCell<Environment>>>,
