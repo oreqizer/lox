@@ -78,20 +78,21 @@ trait Callable {
     fn call(&self, it: &mut Interpreter, args: &[Rc<Var>]) -> Result<Rc<Var>, Error>;
 }
 
-#[derive(Debug)]
 struct Function {
     name: String,
     params: Vec<String>,
     body: Vec<Stmt>,
+    closure: Rc<RefCell<Environment>>,
     offset: usize,
 }
 
 impl Function {
-    fn new(name: String, params: Vec<String>, body: Vec<Stmt>, offset: usize) -> Self {
+    fn new(name: String, params: Vec<String>, body: Vec<Stmt>, closure: &Rc<RefCell<Environment>>, offset: usize) -> Self {
         Self {
             name,
             params,
             body,
+            closure: Rc::clone(closure),
             offset,
         }
     }
@@ -107,7 +108,7 @@ impl Callable for Function {
     }
 
     fn call(&self, it: &mut Interpreter, args: &[Rc<Var>]) -> Result<Rc<Var>, Error> {
-        let env = Rc::new(RefCell::new(Environment::new(&it.globals)));
+        let env = Rc::new(RefCell::new(Environment::new(&self.closure)));
         for (i, param) in self.params.iter().enumerate() {
             let arg = args
                 .get(i)
@@ -291,6 +292,7 @@ impl Interpreter {
                     name.to_string(),
                     params.iter().map(|t| t.to_string()).collect(),
                     body.clone(),
+                    &self.env,
                     name.offset(),
                 );
 
