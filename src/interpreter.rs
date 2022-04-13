@@ -1,5 +1,4 @@
 use std::{
-    borrow::Borrow,
     cell::RefCell,
     collections::HashMap,
     fmt,
@@ -149,7 +148,7 @@ impl Callable for Native {
         0
     }
 
-    fn call(&self, it: &mut Interpreter, args: &[Rc<Var>]) -> Result<Rc<Var>, Error> {
+    fn call(&self, _it: &mut Interpreter, _args: &[Rc<Var>]) -> Result<Rc<Var>, Error> {
         let cb = &self.callback;
 
         Ok(Rc::new(Var::Value(cb())))
