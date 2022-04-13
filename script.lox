@@ -1,9 +1,17 @@
-fun count(n) {
-  while (n < 100) {
-    if (n == 3) return n; // <--
-    print n;
-    n = n + 1;
-  }
+fun fib(n) {
+  print n;
+  if (n <= 1) return n;
+  return fib(n - 2) + fib(n - 1);
 }
 
-count(1);
+// for (var i = 0; i < 20; i = i + 1) {
+//   print fib(i);
+// }
+print fib(20);
+
+fun count(n) {
+  if (n <= 1) return n;
+  return count(n - 1);
+}
+
+print count(20);

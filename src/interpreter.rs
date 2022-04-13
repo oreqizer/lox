@@ -1,10 +1,4 @@
-use std::{
-    borrow::BorrowMut,
-    cell::{RefCell, RefMut},
-    collections::HashMap,
-    fmt, mem,
-    rc::Rc,
-};
+use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
 use crate::{
     lexer::{Token, TokenKind},
@@ -72,7 +66,7 @@ impl Value {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 struct Function {
     name: String,
     params: Vec<String>,
@@ -115,7 +109,7 @@ impl fmt::Display for Function {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 enum Var {
     Value(Value),
     Function(Function),
@@ -141,6 +135,7 @@ impl fmt::Display for Var {
 
 type Return<T> = Option<T>;
 
+#[derive(Debug)]
 struct Environment {
     vars: HashMap<String, Option<Var>>,
     enclosing: Option<Rc<RefCell<Environment>>>,
@@ -198,9 +193,14 @@ pub struct Interpreter {
 
 impl Interpreter {
     pub fn new() -> Self {
+        let globals = Rc::new(RefCell::new(Environment::default()));
+
+        // TODO define "clock" here
+        // TODO: functions have some environment collisions, see script.lox
+
         Self {
-            env: Rc::new(RefCell::new(Environment::default())),
-            globals: Rc::new(RefCell::new(Environment::default())),
+            env: Rc::clone(&globals),
+            globals,
         }
     }
 
@@ -253,9 +253,7 @@ impl Interpreter {
                 self.visit_print_stmt(e)?;
                 Ok(None)
             }
-            Stmt::Return(e) => {
-                return Ok(Some(self.visit_expr(e)?));
-            }
+            Stmt::Return(e) => Ok(Some(self.visit_expr(e)?)),
             Stmt::VarDecl { name, value } => {
                 self.visit_var_stmt(name, value.as_ref())?;
                 Ok(None)
@@ -266,17 +264,6 @@ impl Interpreter {
 
     fn visit_expr(&mut self, expr: &Expr) -> Result<Var, Error> {
         match expr {
-            Expr::Variable(token) => self
-                .env
-                .as_ref()
-                .borrow_mut()
-                .get(token.literal_identifier())
-                .map_err(|msg| Error::new(&msg, token.offset())),
-            Expr::Logical {
-                left,
-                operator,
-                right,
-            } => self.visit_logical_expr(left, operator, right),
             Expr::Assign { name, value } => {
                 let value = self.visit_expr(value.as_ref())?;
                 self.env
@@ -286,24 +273,35 @@ impl Interpreter {
                     .map_err(|msg| Error::new(&msg, name.offset()))?;
                 Ok(value)
             }
-            Expr::Nil => Ok(Var::Value(Value::Nil)),
-            Expr::Number(n) => Ok(Var::Value(Value::Number(*n))),
-            Expr::String(s) => Ok(Var::Value(Value::String(s.to_string()))),
-            Expr::Boolean(b) => Ok(Var::Value(Value::Boolean(*b))),
-            Expr::Grouping(e) => self.visit_expr(e.as_ref()),
-            Expr::Call {
-                callee,
-                paren,
-                args,
-            } => self.visit_call_expr(callee, paren, args),
-            Expr::Unary { operator, right } => {
-                Ok(Var::Value(self.visit_unary_expr(operator, right)?))
-            }
             Expr::Binary {
                 left,
                 operator,
                 right,
             } => Ok(Var::Value(self.visit_binary_expr(left, operator, right)?)),
+            Expr::Boolean(b) => Ok(Var::Value(Value::Boolean(*b))),
+            Expr::Call {
+                callee,
+                paren,
+                args,
+            } => self.visit_call_expr(callee, paren, args),
+            Expr::Grouping(e) => self.visit_expr(e.as_ref()),
+            Expr::Logical {
+                left,
+                operator,
+                right,
+            } => self.visit_logical_expr(left, operator, right),
+            Expr::Nil => Ok(Var::Value(Value::Nil)),
+            Expr::Number(n) => Ok(Var::Value(Value::Number(*n))),
+            Expr::String(s) => Ok(Var::Value(Value::String(s.to_string()))),
+            Expr::Unary { operator, right } => {
+                Ok(Var::Value(self.visit_unary_expr(operator, right)?))
+            }
+            Expr::Variable(token) => self
+                .env
+                .as_ref()
+                .borrow_mut()
+                .get(token.literal_identifier())
+                .map_err(|msg| Error::new(&msg, token.offset())),
         }
     }
 
