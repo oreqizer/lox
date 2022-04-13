@@ -87,7 +87,13 @@ struct Function {
 }
 
 impl Function {
-    fn new(name: String, params: Vec<String>, body: Vec<Stmt>, closure: &Rc<RefCell<Environment>>, offset: usize) -> Self {
+    fn new(
+        name: String,
+        params: Vec<String>,
+        body: Vec<Stmt>,
+        closure: &Rc<RefCell<Environment>>,
+        offset: usize,
+    ) -> Self {
         Self {
             name,
             params,
@@ -101,6 +107,57 @@ impl Function {
 impl Callable for Function {
     fn name(&self) -> &str {
         &self.name
+    }
+
+    fn offset(&self) -> usize {
+        self.offset
+    }
+
+    fn call(&self, it: &mut Interpreter, args: &[Rc<Var>]) -> Result<Rc<Var>, Error> {
+        let env = Rc::new(RefCell::new(Environment::new(&self.closure)));
+        for (i, param) in self.params.iter().enumerate() {
+            let arg = args
+                .get(i)
+                .ok_or(Error::new("Arity mismatch", self.offset))?;
+
+            env.as_ref()
+                .borrow_mut()
+                .define(&param, Some(Rc::clone(arg)));
+        }
+
+        match it.visit_block(&env, &self.body)? {
+            Some(val) => Ok(val),
+            None => Ok(Rc::new(Var::Value(Value::Nil))),
+        }
+    }
+}
+
+struct Lambda {
+    params: Vec<String>,
+    body: Vec<Stmt>,
+    closure: Rc<RefCell<Environment>>,
+    offset: usize,
+}
+
+impl Lambda {
+    fn new(
+        params: Vec<String>,
+        body: Vec<Stmt>,
+        closure: &Rc<RefCell<Environment>>,
+        offset: usize,
+    ) -> Self {
+        Self {
+            params,
+            body,
+            closure: Rc::clone(closure),
+            offset,
+        }
+    }
+}
+
+impl Callable for Lambda {
+    fn name(&self) -> &str {
+        "<lambda>"
     }
 
     fn offset(&self) -> usize {
@@ -233,14 +290,13 @@ impl Environment {
 
 pub struct Interpreter {
     env: Rc<RefCell<Environment>>,
-    globals: Rc<RefCell<Environment>>,
 }
 
 impl Interpreter {
     pub fn new() -> Self {
-        let globals = Rc::new(RefCell::new(Environment::default()));
+        let env = Rc::new(RefCell::new(Environment::default()));
 
-        globals.borrow_mut().define(
+        env.borrow_mut().define(
             "clock",
             Some(Rc::new(Var::Function(Box::new(Native::new(
                 "clock",
@@ -255,10 +311,7 @@ impl Interpreter {
             ))))),
         );
 
-        Self {
-            env: Rc::clone(&globals),
-            globals,
-        }
+        Self { env }
     }
 
     // TODO: later replace Error with RuntimeError that has a call stack and stuff
@@ -345,6 +398,16 @@ impl Interpreter {
                 args,
             } => self.visit_call_expr(callee, paren, args),
             Expr::Grouping(e) => self.visit_expr(e.as_ref()),
+            Expr::Lambda { fun, params, body } => {
+                let lambda = Lambda::new(
+                    params.iter().map(|t| t.to_string()).collect(),
+                    body.clone(),
+                    &self.env,
+                    fun.offset(),
+                );
+
+                Ok(Rc::new(Var::Function(Box::new(lambda))))
+            }
             Expr::Logical {
                 left,
                 operator,

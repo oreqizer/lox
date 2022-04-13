@@ -21,6 +21,11 @@ pub enum Expr {
         args: Vec<Expr>,
     },
     Grouping(Box<Expr>),
+    Lambda {
+        fun: Token,
+        params: Vec<Token>,
+        body: Vec<Stmt>,
+    },
     Logical {
         left: Box<Expr>,
         operator: Token,
@@ -439,6 +444,7 @@ impl<'a> Parser<'a> {
 
     // primary → "true" | "false" | "nil"
     //         | NUMBER | STRING
+    //         | "fun" functionDecl
     //         | "(" expression ")"
     //         | IDENTIFIER ;
     fn primary(&mut self) -> Result<Expr, Error> {
@@ -451,6 +457,13 @@ impl<'a> Parser<'a> {
                 Nil => self.next_ok(Expr::Nil),
                 Number => self.next_ok(Expr::Number(token.literal_number())),
                 String => self.next_ok(Expr::String(token.literal_string().to_string())),
+                Fun => {
+                    self.tokens.next();
+
+                    let (params, body) = self.make_function_decl("lambda")?;
+
+                    Ok(Expr::Lambda { fun: token.clone(), params, body })
+                }
                 LeftParen => {
                     self.tokens.next();
 
@@ -539,7 +552,7 @@ impl<'a> Parser<'a> {
         Ok(stmts)
     }
 
-    // function   → IDENTIFIER "(" parameters? ")" block ;
+    // function   → IDENTIFIER functionDecl ;
     // parameters → IDENTIFIER ( "," IDENTIFIER )* ;
     #[inline]
     fn make_function(&mut self, kind: &str) -> Result<Stmt, Error> {
@@ -548,6 +561,16 @@ impl<'a> Parser<'a> {
         let name = self
             .next_assert(Identifier, &format!("Expect {kind} name"))?
             .clone();
+
+        let (params, body) = self.make_function_decl(kind)?;
+
+        Ok(Stmt::Function { name, params, body })
+    }
+
+    // functionDecl → "(" parameters? ")" block
+    #[inline]
+    fn make_function_decl(&mut self, kind: &str) -> Result<(Vec<Token>, Vec<Stmt>), Error> {
+        use TokenKind::*;
 
         self.next_assert(LeftParen, &format!("Expect '(' after {kind} name"))?;
 
@@ -589,7 +612,7 @@ impl<'a> Parser<'a> {
             )),
         }?;
 
-        Ok(Stmt::Function { name, params, body })
+        Ok((params, body))
     }
 
     #[inline]
