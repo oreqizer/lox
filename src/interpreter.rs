@@ -1,4 +1,11 @@
-use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc, borrow::Borrow};
+use std::{
+    borrow::Borrow,
+    cell::RefCell,
+    collections::HashMap,
+    fmt,
+    rc::Rc,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use crate::{
     lexer::{Token, TokenKind},
@@ -66,7 +73,13 @@ impl Value {
     }
 }
 
-#[derive(Debug, Clone)]
+trait Callable {
+    fn name(&self) -> &str;
+    fn offset(&self) -> usize;
+    fn call(&self, it: &mut Interpreter, args: &[Rc<Var>]) -> Result<Rc<Var>, Error>;
+}
+
+#[derive(Debug)]
 struct Function {
     name: String,
     params: Vec<String>,
@@ -83,36 +96,69 @@ impl Function {
             offset,
         }
     }
+}
 
-    fn call(&self, it: &mut Interpreter, args: &[Var]) -> Result<Var, Error> {
+impl Callable for Function {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn offset(&self) -> usize {
+        self.offset
+    }
+
+    fn call(&self, it: &mut Interpreter, args: &[Rc<Var>]) -> Result<Rc<Var>, Error> {
         let env = Rc::new(RefCell::new(Environment::new(&it.globals)));
         for (i, param) in self.params.iter().enumerate() {
             let arg = args
                 .get(i)
                 .ok_or(Error::new("Arity mismatch", self.offset))?;
 
-            env.as_ref().borrow_mut().define(&param, Some(arg.clone()));
+            env.as_ref()
+                .borrow_mut()
+                .define(&param, Some(Rc::clone(arg)));
         }
 
         match it.visit_block(&env, &self.body)? {
             Some(val) => Ok(val),
-            None => Ok(Var::Value(Value::Nil)),
+            None => Ok(Rc::new(Var::Value(Value::Nil))),
         }
     }
 }
 
-impl fmt::Display for Function {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let name = &self.name;
+struct Native {
+    name: String,
+    callback: Box<dyn Fn() -> Value>,
+}
 
-        write!(f, "<fn {name}>")
+impl Native {
+    fn new(name: &str, callback: Box<dyn Fn() -> Value>) -> Self {
+        Self {
+            name: name.to_string(),
+            callback,
+        }
     }
 }
 
-#[derive(Debug, Clone)]
+impl Callable for Native {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn offset(&self) -> usize {
+        0
+    }
+
+    fn call(&self, it: &mut Interpreter, args: &[Rc<Var>]) -> Result<Rc<Var>, Error> {
+        let cb = &self.callback;
+
+        Ok(Rc::new(Var::Value(cb())))
+    }
+}
+
 enum Var {
     Value(Value),
-    Function(Function),
+    Function(Box<dyn Callable>),
 }
 
 impl Var {
@@ -128,16 +174,15 @@ impl fmt::Display for Var {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Var::Value(v) => v.fmt(f),
-            Var::Function(fun) => fun.fmt(f),
+            Var::Function(fun) => write!(f, "<fn {}>", fun.name()),
         }
     }
 }
 
 type Return<T> = Option<T>;
 
-#[derive(Debug)]
 struct Environment {
-    vars: HashMap<String, Option<Var>>,
+    vars: HashMap<String, Option<Rc<Var>>>,
     enclosing: Option<Rc<RefCell<Environment>>>,
 }
 
@@ -158,11 +203,11 @@ impl Environment {
         }
     }
 
-    fn define(&mut self, name: &str, value: Option<Var>) {
+    fn define(&mut self, name: &str, value: Option<Rc<Var>>) {
         self.vars.insert(name.to_string(), value);
     }
 
-    fn assign(&mut self, name: &str, value: Var) -> Result<(), String> {
+    fn assign(&mut self, name: &str, value: Rc<Var>) -> Result<(), String> {
         if self.vars.contains_key(name) {
             self.vars.insert(name.to_string(), Some(value));
             Ok(())
@@ -174,9 +219,9 @@ impl Environment {
         }
     }
 
-    fn get(&mut self, name: &str) -> Result<Var, String> {
+    fn get(&mut self, name: &str) -> Result<Rc<Var>, String> {
         match self.vars.get(name) {
-            Some(Some(v)) => Ok(v.clone()),
+            Some(Some(v)) => Ok(Rc::clone(v)),
             Some(None) => Err("Access of uninitialized variable".to_string()),
             None => match &self.enclosing {
                 Some(e) => e.as_ref().borrow_mut().get(name),
@@ -195,8 +240,20 @@ impl Interpreter {
     pub fn new() -> Self {
         let globals = Rc::new(RefCell::new(Environment::default()));
 
-        // TODO define "clock" here
-        // TODO: functions have some environment collisions, see script.lox
+        globals.borrow_mut().define(
+            "clock",
+            Some(Rc::new(Var::Function(Box::new(Native::new(
+                "clock",
+                Box::new(|| {
+                    Value::Number(
+                        SystemTime::now()
+                            .duration_since(UNIX_EPOCH)
+                            .unwrap()
+                            .as_millis() as f64,
+                    )
+                }),
+            ))))),
+        );
 
         Self {
             env: Rc::clone(&globals),
@@ -213,13 +270,13 @@ impl Interpreter {
     }
 
     pub fn eval(&mut self, expr: &Expr) -> Result<Value, Error> {
-        match self.visit_expr(expr)? {
-            Var::Value(v) => Ok(v),
-            Var::Function(f) => Err(Error::new("Cannot evaluate a function", f.offset)),
+        match self.visit_expr(expr)?.as_ref() {
+            Var::Value(v) => Ok(v.clone()),
+            Var::Function(f) => Err(Error::new("Cannot evaluate a function", f.offset())),
         }
     }
 
-    fn visit_stmt(&mut self, stmt: &Stmt) -> Result<Return<Var>, Error> {
+    fn visit_stmt(&mut self, stmt: &Stmt) -> Result<Return<Rc<Var>>, Error> {
         match stmt {
             Stmt::Block(stmts) => {
                 let env = Rc::new(RefCell::new(Environment::new(&self.env)));
@@ -238,10 +295,10 @@ impl Interpreter {
                     name.offset(),
                 );
 
-                self.env
-                    .as_ref()
-                    .borrow_mut()
-                    .define(name.literal_identifier(), Some(Var::Function(fun)));
+                self.env.as_ref().borrow_mut().define(
+                    name.literal_identifier(),
+                    Some(Rc::new(Var::Function(Box::new(fun)))),
+                );
                 Ok(None)
             }
             Stmt::If {
@@ -253,9 +310,7 @@ impl Interpreter {
                 self.visit_print_stmt(e)?;
                 Ok(None)
             }
-            Stmt::Return(e) => {
-                Ok(Some(self.visit_expr(e)?))
-            }
+            Stmt::Return(e) => Ok(Some(self.visit_expr(e)?)),
             Stmt::VarDecl { name, value } => {
                 self.visit_var_stmt(name, value.as_ref())?;
                 Ok(None)
@@ -264,14 +319,14 @@ impl Interpreter {
         }
     }
 
-    fn visit_expr(&mut self, expr: &Expr) -> Result<Var, Error> {
+    fn visit_expr(&mut self, expr: &Expr) -> Result<Rc<Var>, Error> {
         match expr {
             Expr::Assign { name, value } => {
                 let value = self.visit_expr(value.as_ref())?;
                 self.env
                     .as_ref()
                     .borrow_mut()
-                    .assign(name.literal_identifier(), value.clone())
+                    .assign(name.literal_identifier(), Rc::clone(&value))
                     .map_err(|msg| Error::new(&msg, name.offset()))?;
                 Ok(value)
             }
@@ -279,8 +334,10 @@ impl Interpreter {
                 left,
                 operator,
                 right,
-            } => Ok(Var::Value(self.visit_binary_expr(left, operator, right)?)),
-            Expr::Boolean(b) => Ok(Var::Value(Value::Boolean(*b))),
+            } => Ok(Rc::new(Var::Value(
+                self.visit_binary_expr(left, operator, right)?,
+            ))),
+            Expr::Boolean(b) => Ok(Rc::new(Var::Value(Value::Boolean(*b)))),
             Expr::Call {
                 callee,
                 paren,
@@ -292,11 +349,11 @@ impl Interpreter {
                 operator,
                 right,
             } => self.visit_logical_expr(left, operator, right),
-            Expr::Nil => Ok(Var::Value(Value::Nil)),
-            Expr::Number(n) => Ok(Var::Value(Value::Number(*n))),
-            Expr::String(s) => Ok(Var::Value(Value::String(s.to_string()))),
+            Expr::Nil => Ok(Rc::new(Var::Value(Value::Nil))),
+            Expr::Number(n) => Ok(Rc::new(Var::Value(Value::Number(*n)))),
+            Expr::String(s) => Ok(Rc::new(Var::Value(Value::String(s.to_string())))),
             Expr::Unary { operator, right } => {
-                Ok(Var::Value(self.visit_unary_expr(operator, right)?))
+                Ok(Rc::new(Var::Value(self.visit_unary_expr(operator, right)?)))
             }
             Expr::Variable(token) => self
                 .env
@@ -312,7 +369,7 @@ impl Interpreter {
         cond: &Expr,
         then_branch: &Stmt,
         else_branch: Option<&Stmt>,
-    ) -> Result<Return<Var>, Error> {
+    ) -> Result<Return<Rc<Var>>, Error> {
         if self.visit_expr(cond)?.is_truthy() {
             if let Some(v) = self.visit_stmt(then_branch)? {
                 return Ok(Some(v));
@@ -326,7 +383,7 @@ impl Interpreter {
         Ok(None)
     }
 
-    fn visit_while(&mut self, cond: &Expr, body: &Stmt) -> Result<Return<Var>, Error> {
+    fn visit_while(&mut self, cond: &Expr, body: &Stmt) -> Result<Return<Rc<Var>>, Error> {
         while self.visit_expr(cond)?.is_truthy() {
             if let Some(v) = self.visit_stmt(body)? {
                 return Ok(Some(v));
@@ -354,7 +411,7 @@ impl Interpreter {
         &mut self,
         env: &Rc<RefCell<Environment>>,
         stmts: &[Stmt],
-    ) -> Result<Return<Var>, Error> {
+    ) -> Result<Return<Rc<Var>>, Error> {
         let mut res = Ok(None);
 
         let previous = Rc::clone(&self.env);
@@ -364,7 +421,7 @@ impl Interpreter {
                 Ok(Some(v)) => {
                     res = Ok(Some(v));
                     break;
-                },
+                }
                 Err(e) => {
                     res = Err(e);
                     break;
@@ -381,12 +438,17 @@ impl Interpreter {
     // =======
 
     #[inline]
-    fn visit_logical_expr(&mut self, left: &Expr, op: &Token, right: &Expr) -> Result<Var, Error> {
+    fn visit_logical_expr(
+        &mut self,
+        left: &Expr,
+        op: &Token,
+        right: &Expr,
+    ) -> Result<Rc<Var>, Error> {
         use TokenKind::{And, Or};
 
         let left = self.visit_expr(left)?;
 
-        match (op.kind(), &left) {
+        match (op.kind(), left.as_ref()) {
             (Or, Var::Value(val)) => {
                 if val.is_truthy() {
                     Ok(left)
@@ -414,8 +476,9 @@ impl Interpreter {
         callee: &Expr,
         paren: &Token,
         args: &[Expr],
-    ) -> Result<Var, Error> {
-        let callee = match self.visit_expr(callee)? {
+    ) -> Result<Rc<Var>, Error> {
+        let expr = self.visit_expr(callee)?;
+        let callee = match expr.as_ref() {
             Var::Function(f) => f,
             Var::Value(_) => return Err(Error::new("Expression not callable", paren.offset())),
         };
@@ -432,7 +495,7 @@ impl Interpreter {
     fn visit_unary_expr(&mut self, op: &Token, right: &Expr) -> Result<Value, Error> {
         use TokenKind::{Bang, Minus};
 
-        match (op.kind(), self.visit_expr(right)?) {
+        match (op.kind(), self.visit_expr(right)?.as_ref()) {
             // Numbers
             (Minus, Var::Value(Value::Number(f))) => Ok(Value::Number(-f)),
             // Booleans
@@ -456,7 +519,7 @@ impl Interpreter {
         let left = self.visit_expr(left)?;
         let right = self.visit_expr(right)?;
 
-        match (left, op.kind(), right) {
+        match (left.as_ref(), op.kind(), right.as_ref()) {
             // Numbers
             (Var::Value(Value::Number(f1)), Minus, Var::Value(Value::Number(f2))) => {
                 Ok(Value::Number(f1 - f2))
