@@ -1,4 +1,4 @@
-use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
+use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc, borrow::Borrow};
 
 use crate::{
     lexer::{Token, TokenKind},
@@ -253,7 +253,9 @@ impl Interpreter {
                 self.visit_print_stmt(e)?;
                 Ok(None)
             }
-            Stmt::Return(e) => Ok(Some(self.visit_expr(e)?)),
+            Stmt::Return(e) => {
+                Ok(Some(self.visit_expr(e)?))
+            }
             Stmt::VarDecl { name, value } => {
                 self.visit_var_stmt(name, value.as_ref())?;
                 Ok(None)
@@ -359,7 +361,10 @@ impl Interpreter {
         self.env = Rc::clone(env);
         for stmt in stmts {
             match self.visit_stmt(stmt) {
-                Ok(Some(v)) => return Ok(Some(v)),
+                Ok(Some(v)) => {
+                    res = Ok(Some(v));
+                    break;
+                },
                 Err(e) => {
                     res = Err(e);
                     break;
