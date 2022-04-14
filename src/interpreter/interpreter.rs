@@ -99,9 +99,9 @@ impl Interpreter {
             }
             Stmt::Function { name, params, body } => {
                 let fun = Function::new(
-                    name.to_string(),
-                    params.iter().map(|t| t.to_string()).collect(),
-                    body.clone(),
+                    name.literal_identifier(),
+                    &params.iter().map(|t| t.to_string()).collect::<Vec<_>>(),
+                    body,
                     &self.env,
                     name.offset(),
                 );
@@ -137,7 +137,7 @@ impl Interpreter {
                 self.env
                     .as_ref()
                     .borrow_mut()
-                    .assign(name.literal_identifier(), Rc::clone(&value))
+                    .assign(name.literal_identifier(), &value)
                     .map_err(|msg| Error::new(&msg, name.offset()))?;
                 Ok(value)
             }
@@ -157,9 +157,9 @@ impl Interpreter {
             Expr::Grouping(e) => self.visit_expr(e.as_ref()),
             Expr::Lambda { fun, params, body } => {
                 let lambda = Function::new(
-                    "<lambda>".to_string(),
-                    params.iter().map(|t| t.to_string()).collect(),
-                    body.clone(),
+                    "<lambda>",
+                    &params.iter().map(|t| t.to_string()).collect::<Vec<_>>(),
+                    body,
                     &self.env,
                     fun.offset(),
                 );

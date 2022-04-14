@@ -53,9 +53,9 @@ impl Environment {
         self.vars.insert(name.to_string(), value);
     }
 
-    pub fn assign(&mut self, name: &str, value: Rc<Var>) -> Result<(), String> {
+    pub fn assign(&mut self, name: &str, value: &Rc<Var>) -> Result<(), String> {
         if self.vars.contains_key(name) {
-            self.vars.insert(name.to_string(), Some(value));
+            self.vars.insert(name.to_string(), Some(Rc::clone(value)));
             Ok(())
         } else {
             match &self.enclosing {

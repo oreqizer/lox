@@ -44,16 +44,16 @@ pub struct Function {
 
 impl Function {
     pub fn new(
-        name: String,
-        params: Vec<String>,
-        body: Vec<Stmt>,
+        name: &str,
+        params: &[String],
+        body: &[Stmt],
         closure: &Rc<RefCell<Environment>>,
         offset: usize,
     ) -> Self {
         Self {
-            name,
-            params,
-            body,
+            name: name.to_string(),
+            params: params.into(),
+            body: body.into(),
             closure: Rc::new(RefCell::new(Environment::clone(&closure.as_ref().borrow()))),
             offset,
         }
