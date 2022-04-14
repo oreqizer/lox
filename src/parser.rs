@@ -462,7 +462,11 @@ impl<'a> Parser<'a> {
 
                     let (params, body) = self.make_function_decl("lambda")?;
 
-                    Ok(Expr::Lambda { fun: token.clone(), params, body })
+                    Ok(Expr::Lambda {
+                        fun: token.clone(),
+                        params,
+                        body,
+                    })
                 }
                 LeftParen => {
                     self.tokens.next();
