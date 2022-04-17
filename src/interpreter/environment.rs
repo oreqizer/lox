@@ -2,7 +2,6 @@ use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
 use super::{callable::Callable, value::Value};
 
-#[derive(Clone)]
 pub enum Var {
     Value(Value),
     Function(Box<dyn Callable>),
@@ -26,7 +25,6 @@ impl fmt::Display for Var {
     }
 }
 
-#[derive(Clone)]
 pub struct Environment {
     vars: HashMap<String, Option<Rc<Var>>>,
     enclosing: Option<Rc<RefCell<Environment>>>,
@@ -53,26 +51,49 @@ impl Environment {
         self.vars.insert(name.to_string(), value);
     }
 
-    pub fn assign(&mut self, name: &str, value: &Rc<Var>) -> Result<(), String> {
-        if self.vars.contains_key(name) {
-            self.vars.insert(name.to_string(), Some(Rc::clone(value)));
+    pub fn assign(from: &Rc<RefCell<Self>>, name: &str, value: &Rc<Var>) -> Result<(), String> {
+        let mut env = from.as_ref().borrow_mut();
+
+        if env.vars.contains_key(name) {
+            env.vars.insert(name.to_string(), Some(Rc::clone(value)));
             Ok(())
         } else {
-            match &self.enclosing {
-                Some(e) => e.as_ref().borrow_mut().assign(name, value),
-                None => Err("Assign to undefined variable".to_string()),
-            }
+            Err("Assign to undefined variable".to_string())
         }
     }
 
-    pub fn get(&mut self, name: &str) -> Result<Rc<Var>, String> {
-        match self.vars.get(name) {
+    pub fn assign_at(
+        from: &Rc<RefCell<Self>>,
+        name: &str,
+        depth: usize,
+        value: &Rc<Var>,
+    ) -> Result<(), String> {
+        Environment::assign(&Environment::ancestor(from, depth), name, value)
+    }
+
+    pub fn get(from: &Rc<RefCell<Self>>, name: &str) -> Result<Rc<Var>, String> {
+        let env = from.as_ref().borrow();
+
+        match env.vars.get(name) {
             Some(Some(v)) => Ok(Rc::clone(v)),
             Some(None) => Err("Access of uninitialized variable".to_string()),
-            None => match &self.enclosing {
-                Some(e) => e.as_ref().borrow_mut().get(name),
-                None => Err("Undefined variable".to_string()),
-            },
+            None => Err("Undefined variable".to_string()),
         }
+    }
+
+    pub fn get_at(from: &Rc<RefCell<Self>>, name: &str, depth: usize) -> Result<Rc<Var>, String> {
+        Environment::get(&Environment::ancestor(from, depth), name)
+    }
+
+    fn ancestor(from: &Rc<RefCell<Self>>, depth: usize) -> Rc<RefCell<Environment>> {
+        (0..depth).fold(Rc::clone(&from), |next, _| {
+            Rc::clone(
+                next.as_ref()
+                    .borrow()
+                    .enclosing
+                    .as_ref()
+                    .expect("Failed to find environment ancestor"),
+            )
+        })
     }
 }

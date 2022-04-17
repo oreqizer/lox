@@ -8,32 +8,12 @@ use super::{
     value::Value,
 };
 
-pub trait Callable: CallableClone {
+pub trait Callable {
     fn name(&self) -> &str;
     fn offset(&self) -> usize;
     fn call(&self, it: &mut Interpreter, args: &[Rc<Var>]) -> Result<Rc<Var>, Error>;
 }
 
-pub trait CallableClone {
-    fn clone_box(&self) -> Box<dyn Callable>;
-}
-
-impl<T> CallableClone for T
-where
-    T: 'static + Callable + Clone,
-{
-    fn clone_box(&self) -> Box<dyn Callable> {
-        Box::new(self.clone())
-    }
-}
-
-impl Clone for Box<dyn Callable> {
-    fn clone(&self) -> Box<dyn Callable> {
-        self.clone_box()
-    }
-}
-
-#[derive(Clone)]
 pub struct Function {
     name: String,
     params: Vec<String>,
@@ -54,7 +34,7 @@ impl Function {
             name: name.to_string(),
             params: params.into(),
             body: body.into(),
-            closure: Rc::new(RefCell::new(Environment::clone(&closure.as_ref().borrow()))),
+            closure: Rc::clone(closure),
             offset,
         }
     }
@@ -88,33 +68,13 @@ impl Callable for Function {
     }
 }
 
-pub trait Callback: Fn() -> Value {
-    fn clone_box(&self) -> Box<dyn Callback>;
-}
-
-impl<T> Callback for T
-where
-    T: 'static + Fn() -> Value + Clone,
-{
-    fn clone_box(&self) -> Box<dyn Callback> {
-        Box::new(self.clone())
-    }
-}
-
-impl Clone for Box<dyn Callback> {
-    fn clone(&self) -> Box<dyn Callback> {
-        self.clone_box()
-    }
-}
-
-#[derive(Clone)]
 pub struct Native {
     name: String,
-    callback: Box<dyn Callback>,
+    callback: Box<dyn Fn() -> Value>,
 }
 
 impl Native {
-    pub fn new(name: &str, callback: Box<dyn Callback>) -> Self {
+    pub fn new(name: &str, callback: Box<dyn Fn() -> Value>) -> Self {
         Self {
             name: name.to_string(),
             callback,

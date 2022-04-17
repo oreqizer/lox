@@ -1,4 +1,4 @@
-use std::{fmt, iter::Peekable, str::Chars};
+use std::{fmt, hash::Hash, iter::Peekable, str::Chars};
 
 use crate::Error;
 
@@ -8,7 +8,7 @@ pub enum Literal {
     String(String),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TokenKind {
     // Single-character tokens
     LeftParen,

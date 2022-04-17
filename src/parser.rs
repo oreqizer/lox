@@ -1,3 +1,4 @@
+use std::hash::{Hash, Hasher};
 use std::{iter::Peekable, slice::Iter};
 
 use crate::error::Error;
@@ -6,6 +7,7 @@ use crate::lexer::{Token, TokenKind};
 #[derive(Clone, Debug, PartialEq)]
 pub enum Expr {
     Assign {
+        id: usize,
         name: Token,
         value: Box<Expr>,
     },
@@ -38,7 +40,20 @@ pub enum Expr {
         operator: Token,
         right: Box<Expr>,
     },
-    Variable(Token),
+    Variable {
+        id: usize,
+        name: Token,
+    },
+}
+
+impl Eq for Expr {}
+
+// Expressions are immutable, OK to hash by pointer
+// 👉 https://stackoverflow.com/questions/33847537/how-do-i-make-a-pointer-hashable
+impl Hash for Expr {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        (self as *const Expr).hash(state);
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -58,7 +73,7 @@ pub enum Stmt {
     Print(Expr),
     Return(Expr),
     VarDecl {
-        name: String,
+        name: Token,
         value: Option<Expr>,
     },
     While {
@@ -69,12 +84,14 @@ pub enum Stmt {
 
 pub struct Parser<'a> {
     tokens: Peekable<Iter<'a, Token>>,
+    id: usize,
 }
 
 impl<'a> Parser<'a> {
     pub fn new(tokens: &'a [Token]) -> Self {
         Self {
             tokens: tokens.iter().peekable(),
+            id: 0,
         }
     }
 
@@ -133,8 +150,7 @@ impl<'a> Parser<'a> {
         // "var" already matched
         let name = self
             .next_assert(Identifier, "Expect identifier after 'var'")?
-            .literal_identifier()
-            .to_string();
+            .clone();
 
         let value = match self.match_token(&[Equal]) {
             Some(_) => Some(self.expression()?),
@@ -306,9 +322,12 @@ impl<'a> Parser<'a> {
             let offset = eq.offset();
             let value = self.assignment()?;
 
+            self.id += 1;
+
             match expr {
-                Expr::Variable(t) => Ok(Expr::Assign {
-                    name: t,
+                Expr::Variable { name, .. } => Ok(Expr::Assign {
+                    id: self.id,
+                    name,
                     value: Box::new(value),
                 }),
                 // Compile-time error on purpose, opposed to the book
@@ -476,7 +495,14 @@ impl<'a> Parser<'a> {
 
                     Ok(Expr::Grouping(Box::new(expr)))
                 }
-                Identifier => self.next_ok(Expr::Variable(token.clone())),
+                Identifier => {
+                    self.id += 1;
+
+                    self.next_ok(Expr::Variable {
+                        id: self.id,
+                        name: token.clone(),
+                    })
+                }
                 _ => Err(Error::new("Unexpected token", token.offset())),
             };
         }
@@ -484,8 +510,7 @@ impl<'a> Parser<'a> {
         Err(Error::new("Unexpected EOF", 0))
     }
 
-    // HELPERS
-    // =======
+    // === Helpers ===
 
     fn synchronize(&mut self) {
         use TokenKind::*;

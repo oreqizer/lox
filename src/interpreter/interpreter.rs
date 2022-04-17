@@ -1,5 +1,6 @@
 use std::{
     cell::RefCell,
+    collections::HashMap,
     rc::Rc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -20,13 +21,15 @@ type Return<T> = Option<T>;
 
 pub struct Interpreter {
     env: Rc<RefCell<Environment>>,
+    globals: Rc<RefCell<Environment>>,
+    locals: HashMap<usize, usize>,
 }
 
 impl Interpreter {
     pub fn new() -> Self {
-        let env = Rc::new(RefCell::new(Environment::default()));
+        let globals = Rc::new(RefCell::new(Environment::default()));
 
-        env.borrow_mut().define(
+        globals.borrow_mut().define(
             "clock",
             Some(Rc::new(Var::Function(Box::new(Native::new(
                 "clock",
@@ -41,10 +44,13 @@ impl Interpreter {
             ))))),
         );
 
-        Self { env }
+        Self {
+            env: Rc::clone(&globals),
+            globals,
+            locals: HashMap::new(),
+        }
     }
 
-    // TODO: later replace Error with RuntimeError that has a call stack and stuff
     pub fn interpret(&mut self, stmts: &[Stmt]) -> Result<(), Error> {
         for s in stmts {
             self.visit_stmt(s)?;
@@ -57,6 +63,10 @@ impl Interpreter {
             Var::Value(v) => Ok(v.clone()),
             Var::Function(f) => Err(Error::new("Cannot evaluate a function", f.offset())),
         }
+    }
+
+    pub fn resolve(&mut self, id: usize, depth: usize) {
+        self.locals.insert(id, depth);
     }
 
     pub fn execute_block(
@@ -123,7 +133,7 @@ impl Interpreter {
             }
             Stmt::Return(e) => Ok(Some(self.visit_expr(e)?)),
             Stmt::VarDecl { name, value } => {
-                self.visit_var_stmt(name, value.as_ref())?;
+                self.visit_var_stmt(name.literal_identifier(), value.as_ref())?;
                 Ok(None)
             }
             Stmt::While { cond, body } => self.visit_while(cond, body),
@@ -132,13 +142,17 @@ impl Interpreter {
 
     fn visit_expr(&mut self, expr: &Expr) -> Result<Rc<Var>, Error> {
         match expr {
-            Expr::Assign { name, value } => {
-                let value = self.visit_expr(value.as_ref())?;
-                self.env
-                    .as_ref()
-                    .borrow_mut()
-                    .assign(name.literal_identifier(), &value)
-                    .map_err(|msg| Error::new(&msg, name.offset()))?;
+            Expr::Assign { id, name, value } => {
+                let value = self.visit_expr(value)?;
+
+                let ident = name.literal_identifier();
+                let map_err = |msg: String| Error::new(&msg, name.offset());
+                if let Some(&depth) = self.locals.get(id) {
+                    Environment::assign_at(&self.env, ident, depth, &value).map_err(map_err)?;
+                } else {
+                    Environment::assign(&self.globals, ident, &value).map_err(map_err)?;
+                }
+
                 Ok(value)
             }
             Expr::Binary {
@@ -177,12 +191,7 @@ impl Interpreter {
             Expr::Unary { operator, right } => {
                 Ok(Rc::new(Var::Value(self.visit_unary_expr(operator, right)?)))
             }
-            Expr::Variable(token) => self
-                .env
-                .as_ref()
-                .borrow_mut()
-                .get(token.literal_identifier())
-                .map_err(|msg| Error::new(&msg, token.offset())),
+            Expr::Variable { id, name } => self.look_up_var(*id, name),
         }
     }
 
@@ -362,6 +371,17 @@ impl Interpreter {
             (_, LessEqual, _) => Err(Error::new("Operands must be numbers", op.offset())),
             // Should not happen™️
             _ => Err(Error::new("Unexpected operation", op.offset())),
+        }
+    }
+
+    #[inline]
+    fn look_up_var(&self, id: usize, token: &Token) -> Result<Rc<Var>, Error> {
+        let name = token.literal_identifier();
+        let map_err = |e: String| Error::new(&e, token.offset());
+
+        match self.locals.get(&id) {
+            Some(&depth) => Environment::get_at(&self.env, name, depth).map_err(map_err),
+            None => Environment::get(&self.globals, name).map_err(map_err),
         }
     }
 }
