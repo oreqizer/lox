@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
     lexer::Token,
-    parser::{Expr, Stmt},
+    parser::{Expr, Stmt, Function},
     Error, Interpreter,
 };
 
@@ -62,8 +62,9 @@ impl Resolver {
     fn visit_stmt(&mut self, stmt: &Stmt) -> Result<(), Error> {
         match stmt {
             Stmt::Block(body) => self.visit_block_stmt(body),
+            Stmt::Class { name, .. } => self.visit_class_stmt(name),
             Stmt::Expr(expr) => self.visit_expr(expr),
-            Stmt::Function { name, params, body } => self.visit_fun_decl(name, params, body),
+            Stmt::Function(Function { name, params, body }) => self.visit_fun_decl(name, params, body),
             Stmt::If {
                 cond,
                 then_branch,
@@ -99,6 +100,12 @@ impl Resolver {
         self.scope_start();
         self.resolve(body)?;
         self.scope_end();
+        Ok(())
+    }
+
+    fn visit_class_stmt(&mut self, name: &Token) -> Result<(), Error> {
+        self.declare(name);
+        self.define(name);
         Ok(())
     }
 

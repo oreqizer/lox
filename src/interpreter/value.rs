@@ -45,6 +45,7 @@ impl TryFrom<Var> for Value {
     fn try_from(value: Var) -> Result<Self, Self::Error> {
         match value {
             Var::Value(v) => Ok(v),
+            Var::Class(_) => Err("Cannot evaluate a class reference".to_string()),
             Var::Function(_) => Err("Cannot evaluate a function reference".to_string()),
         }
     }

@@ -7,12 +7,13 @@ use std::{
 
 use crate::{
     lexer::{Token, TokenKind},
-    parser::{Expr, Stmt},
+    parser::{Expr, Function as FunctionStmt, Stmt},
     Error,
 };
 
 use super::{
     callable::{Function, Native},
+    class::Class,
     environment::{Environment, Var},
     value::Value,
 };
@@ -62,6 +63,7 @@ impl Interpreter {
         match self.visit_expr(expr)?.as_ref() {
             Var::Value(v) => Ok(v.clone()),
             Var::Function(f) => Err(Error::new("Cannot evaluate a function", f.offset())),
+            Var::Class(c) => Err(Error::new("Cannot evaluate a class", c.offset())),
         }
     }
 
@@ -103,11 +105,15 @@ impl Interpreter {
 
                 self.execute_block(&env, stmts)
             }
+            Stmt::Class { name, methods } => {
+                self.visit_class_stmt(name, methods)?;
+                Ok(None)
+            }
             Stmt::Expr(e) => {
                 self.visit_expr(e)?;
                 Ok(None)
             }
-            Stmt::Function { name, params, body } => {
+            Stmt::Function(FunctionStmt { name, params, body }) => {
                 let fun = Function::new(
                     name.literal_identifier(),
                     &params.iter().map(|t| t.to_string()).collect::<Vec<_>>(),
@@ -193,6 +199,16 @@ impl Interpreter {
             }
             Expr::Variable { id, name } => self.look_up_var(*id, name),
         }
+    }
+
+    fn visit_class_stmt(&mut self, name: &Token, methods: &[FunctionStmt]) -> Result<(), Error> {
+        let class = Class::new(name);
+
+        self.env
+            .as_ref()
+            .borrow_mut()
+            .define(name.literal_identifier(), Some(Rc::new(Var::Class(class))));
+        Ok(())
     }
 
     fn visit_if(
@@ -284,6 +300,7 @@ impl Interpreter {
         let expr = self.visit_expr(callee)?;
         let callee = match expr.as_ref() {
             Var::Function(f) => f,
+            Var::Class(c) => todo!(),
             Var::Value(_) => return Err(Error::new("Expression not callable", paren.offset())),
         };
 

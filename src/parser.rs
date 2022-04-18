@@ -57,14 +57,27 @@ impl Hash for Expr {
 }
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct Function {
+    pub name: Token,
+    pub params: Vec<Token>,
+    pub body: Vec<Stmt>,
+}
+
+impl Function {
+    fn new(name: Token, params: Vec<Token>, body: Vec<Stmt>) -> Self {
+        Self { name, params, body }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum Stmt {
     Block(Vec<Stmt>),
-    Expr(Expr),
-    Function {
+    Class {
         name: Token,
-        params: Vec<Token>,
-        body: Vec<Stmt>,
+        methods: Vec<Function>,
     },
+    Expr(Expr),
+    Function(Function),
     If {
         cond: Expr,
         then_branch: Box<Stmt>,
@@ -83,6 +96,12 @@ pub enum Stmt {
         cond: Expr,
         body: Box<Stmt>,
     },
+}
+
+impl From<Function> for Stmt {
+    fn from(f: Function) -> Self {
+        Stmt::Function(f)
+    }
 }
 
 pub struct Parser<'a> {
@@ -127,23 +146,43 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    // declaration → funDecl
+    // declaration → classDecl
+    //             | funDecl
     //             | varDecl
     //             | statement ;
     fn declaration(&mut self) -> Result<Stmt, Error> {
         use TokenKind::*;
 
-        match self.match_token(&[Fun, Var]).map(|t| t.kind()) {
+        match self.match_token(&[Class, Fun, Var]).map(|t| t.kind()) {
+            Some(Class) => self.class_decl(),
             Some(Fun) => self.fun_decl(),
             Some(Var) => self.var_decl(),
             _ => self.statement(),
         }
     }
 
+    // classDecl → "class" IDENTIFIER "{" function* "}" ;
+    fn class_decl(&mut self) -> Result<Stmt, Error> {
+        use TokenKind::*;
+
+        // "class" already matched
+        let name = self.next_assert(Identifier, "Expect class name")?.clone();
+        self.next_assert(LeftBrace, "Expect '{' before class body")?;
+
+        let mut methods = Vec::new();
+        while !self.next_check(RightBrace) {
+            methods.push(self.make_function("method")?);
+        }
+
+        self.next_assert(RightBrace, "Expect '}' after class body")?;
+        
+        Ok(Stmt::Class { name, methods })
+    }
+
     // funDecl → "fun" function ;
     fn fun_decl(&mut self) -> Result<Stmt, Error> {
         // "fun" already matched
-        self.make_function("function")
+        Ok(self.make_function("function")?.into())
     }
 
     // varDecl → "var" IDENTIFIER ( "=" expression )? ";" ;
@@ -587,7 +626,7 @@ impl<'a> Parser<'a> {
     // function   → IDENTIFIER functionDecl ;
     // parameters → IDENTIFIER ( "," IDENTIFIER )* ;
     #[inline]
-    fn make_function(&mut self, kind: &str) -> Result<Stmt, Error> {
+    fn make_function(&mut self, kind: &str) -> Result<Function, Error> {
         use TokenKind::*;
 
         let name = self
@@ -596,7 +635,7 @@ impl<'a> Parser<'a> {
 
         let (params, body) = self.make_function_decl(kind)?;
 
-        Ok(Stmt::Function { name, params, body })
+        Ok(Function::new(name, params, body))
     }
 
     // functionDecl → "(" parameters? ")" block

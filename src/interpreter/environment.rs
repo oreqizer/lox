@@ -1,17 +1,18 @@
 use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
-use super::{callable::Callable, value::Value};
+use super::{callable::Callable, class::Class, value::Value};
 
 pub enum Var {
-    Value(Value),
     Function(Box<dyn Callable>),
+    Class(Class),
+    Value(Value),
 }
 
 impl Var {
     pub fn is_truthy(&self) -> bool {
         match self {
             Var::Value(v) => v.is_truthy(),
-            Var::Function(_) => true,
+            Var::Class(_) | Var::Function(_) => true,
         }
     }
 }
@@ -19,8 +20,9 @@ impl Var {
 impl fmt::Display for Var {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Var::Value(v) => v.fmt(f),
+            Var::Class(class) => fmt::Display::fmt(class, f),
             Var::Function(fun) => write!(f, "<fn {}>", fun.name()),
+            Var::Value(v) => fmt::Display::fmt(v, f),
         }
     }
 }
