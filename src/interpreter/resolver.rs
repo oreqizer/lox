@@ -6,9 +6,16 @@ use crate::{
     Error, Interpreter,
 };
 
+#[derive(Clone, Copy)]
+enum FunctionType {
+    None,
+    Function,
+}
+
 pub struct Resolver {
     scopes: Vec<HashMap<String, bool>>,
     interpreter: Rc<RefCell<Interpreter>>,
+    current_fn: FunctionType,
 }
 
 impl Resolver {
@@ -16,6 +23,7 @@ impl Resolver {
         Self {
             scopes: Vec::new(),
             interpreter: Rc::clone(interpreter),
+            current_fn: FunctionType::None,
         }
     }
 
@@ -69,7 +77,16 @@ impl Resolver {
                 Ok(())
             }
             Stmt::Print(expr) => self.visit_expr(expr),
-            Stmt::Return(expr) => self.visit_expr(expr),
+            Stmt::Return { token, value } => {
+                if let FunctionType::None = self.current_fn {
+                    return Err(Error::new(
+                        "Cannot return from top-level code",
+                        token.offset(),
+                    ));
+                }
+
+                self.visit_expr(value)
+            }
             Stmt::VarDecl { name, value } => self.visit_var_decl(name, value),
             Stmt::While { cond, body } => {
                 self.visit_expr(cond)?;
@@ -93,7 +110,7 @@ impl Resolver {
     ) -> Result<(), Error> {
         self.declare(name);
         self.define(name);
-        self.resolve_function(params, body)?;
+        self.resolve_function(params, body, FunctionType::Function)?;
         Ok(())
     }
 
@@ -164,7 +181,15 @@ impl Resolver {
 
     // === Helpers ===
 
-    fn resolve_function(&mut self, params: &[Token], body: &[Stmt]) -> Result<(), Error> {
+    fn resolve_function(
+        &mut self,
+        params: &[Token],
+        body: &[Stmt],
+        kind: FunctionType,
+    ) -> Result<(), Error> {
+        let enclosing_fn = self.current_fn;
+        self.current_fn = kind;
+
         self.scope_start();
         for p in params {
             self.declare(p);
@@ -172,6 +197,8 @@ impl Resolver {
         }
         self.resolve(body)?;
         self.scope_end();
+
+        self.current_fn = enclosing_fn;
         Ok(())
     }
 }

@@ -131,7 +131,7 @@ impl Interpreter {
                 self.visit_print_stmt(e)?;
                 Ok(None)
             }
-            Stmt::Return(e) => Ok(Some(self.visit_expr(e)?)),
+            Stmt::Return { value, .. } => Ok(Some(self.visit_expr(value)?)),
             Stmt::VarDecl { name, value } => {
                 self.visit_var_stmt(name.literal_identifier(), value.as_ref())?;
                 Ok(None)
@@ -383,15 +383,5 @@ impl Interpreter {
             Some(&depth) => Environment::get_at(&self.env, name, depth).map_err(map_err),
             None => Environment::get(&self.globals, name).map_err(map_err),
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn nil() {
-        todo!()
     }
 }

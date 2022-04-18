@@ -71,7 +71,10 @@ pub enum Stmt {
         else_branch: Option<Box<Stmt>>,
     },
     Print(Expr),
-    Return(Expr),
+    Return {
+        token: Token,
+        value: Expr,
+    },
     VarDecl {
         name: Token,
         value: Option<Expr>,
@@ -174,14 +177,14 @@ impl<'a> Parser<'a> {
 
         match self
             .match_token(&[For, If, Return, Print, While, LeftBrace])
-            .map(|t| t.kind())
+            .cloned()
         {
-            Some(For) => self.for_stmt(),
-            Some(If) => self.if_stmt(),
-            Some(While) => self.while_stmt(),
-            Some(Return) => self.return_stmt(),
-            Some(Print) => self.print_stmt(),
-            Some(LeftBrace) => self.block(),
+            Some(t) if t.kind() == For => self.for_stmt(),
+            Some(t) if t.kind() == If => self.if_stmt(),
+            Some(t) if t.kind() == While => self.while_stmt(),
+            Some(t) if t.kind() == Return => self.return_stmt(t),
+            Some(t) if t.kind() == Print => self.print_stmt(),
+            Some(t) if t.kind() == LeftBrace => self.block(),
             _ => self.expr_stmt(),
         }
     }
@@ -276,7 +279,7 @@ impl<'a> Parser<'a> {
     }
 
     // returnStmt -> "return" expression? ";" ;
-    fn return_stmt(&mut self) -> Result<Stmt, Error> {
+    fn return_stmt(&mut self, token: Token) -> Result<Stmt, Error> {
         use TokenKind::*;
 
         // "return" already matched
@@ -286,7 +289,7 @@ impl<'a> Parser<'a> {
         };
         self.next_assert(Semicolon, "Expect ';' after return")?;
 
-        Ok(Stmt::Return(expr))
+        Ok(Stmt::Return { token, value: expr })
     }
 
     // printStmt → "print" expression ";" ;
