@@ -1,4 +1,4 @@
-mod callable;
+mod function;
 mod class;
 mod environment;
 mod interpreter;

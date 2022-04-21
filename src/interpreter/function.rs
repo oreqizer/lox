@@ -8,26 +8,6 @@ use super::{
     value::Value,
 };
 
-pub trait Callable {
-    fn name(&self) -> &str;
-    fn offset(&self) -> usize;
-    fn call(&self, it: &mut Interpreter, args: &[Rc<Var>]) -> Result<Rc<Var>, Error>;
-}
-
-impl<T: Callable> Callable for Rc<T> {
-    fn name(&self) -> &str {
-        Callable::name(self.as_ref())
-    }
-
-    fn offset(&self) -> usize {
-        Callable::offset(self.as_ref())
-    }
-
-    fn call(&self, it: &mut Interpreter, args: &[Rc<Var>]) -> Result<Rc<Var>, Error> {
-        Callable::call(self.as_ref(), it, args)
-    }
-}
-
 pub struct Function {
     name: String,
     params: Vec<String>,
@@ -52,18 +32,16 @@ impl Function {
             offset,
         }
     }
-}
 
-impl Callable for Function {
-    fn name(&self) -> &str {
+    pub fn name(&self) -> &str {
         &self.name
     }
 
-    fn offset(&self) -> usize {
+    pub fn offset(&self) -> usize {
         self.offset
     }
 
-    fn call(&self, it: &mut Interpreter, args: &[Rc<Var>]) -> Result<Rc<Var>, Error> {
+    pub fn call(&self, it: &mut Interpreter, args: &[Var]) -> Result<Var, Error> {
         let env = Rc::new(RefCell::new(Environment::new(&self.closure)));
         for (i, param) in self.params.iter().enumerate() {
             let arg = args
@@ -72,12 +50,12 @@ impl Callable for Function {
 
             env.as_ref()
                 .borrow_mut()
-                .define(&param, Some(Rc::clone(arg)));
+                .define(&param, Some(arg.clone()));
         }
 
         match it.execute_block(&env, &self.body)? {
             Some(val) => Ok(val),
-            None => Ok(Rc::new(Var::Value(Value::Nil))),
+            None => Ok(Var::Value(Value::Nil))
         }
     }
 }
@@ -94,20 +72,18 @@ impl Native {
             callback,
         }
     }
-}
 
-impl Callable for Native {
-    fn name(&self) -> &str {
+    pub fn name(&self) -> &str {
         &self.name
     }
 
-    fn offset(&self) -> usize {
+    pub fn offset(&self) -> usize {
         0
     }
 
-    fn call(&self, _it: &mut Interpreter, _args: &[Rc<Var>]) -> Result<Rc<Var>, Error> {
+    pub fn call(&self, _it: &mut Interpreter, _args: &[Var]) -> Result<Var, Error> {
         let cb = &self.callback;
 
-        Ok(Rc::new(Var::Value(cb())))
+        Ok(Var::Value(cb()))
     }
 }

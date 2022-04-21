@@ -47,7 +47,7 @@ impl TryFrom<Var> for Value {
             Var::Value(v) => Ok(v),
             Var::Class(_) => Err("Cannot evaluate an class".to_string()),
             Var::Instance(_) => Err("Cannot evaluate an instance".to_string()),
-            Var::Function(_) => Err("Cannot evaluate a function".to_string()),
+            Var::Function(_) | Var::Native(_) => Err("Cannot evaluate a function".to_string()),
         }
     }
 }

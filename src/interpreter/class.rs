@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
 use crate::{lexer::Token, Error, Interpreter};
 
-use super::{callable::Function, environment::Var};
+use super::{function::Function, environment::Var};
 
 pub struct Class {
     name: String,
@@ -28,9 +28,9 @@ impl Class {
     pub fn call(
         self: &Rc<Self>,
         _it: &mut Interpreter,
-        _args: &[Rc<Var>],
-    ) -> Result<Rc<Var>, Error> {
-        Ok(Rc::new(Var::Instance(RefCell::new(Instance::new(&self)))))
+        _args: &[Var],
+    ) -> Result<Var, Error> {
+        Ok(Var::Instance(Rc::new(RefCell::new(Instance::new(&self)))))
     }
 
     pub fn name(&self) -> &str {
@@ -48,7 +48,7 @@ impl Class {
 
 pub struct Instance {
     class: Rc<Class>,
-    fields: HashMap<String, Rc<Var>>,
+    fields: HashMap<String, Var>,
 }
 
 impl fmt::Display for Instance {
@@ -65,7 +65,7 @@ impl Instance {
         }
     }
 
-    pub fn get(&self, name: &Token) -> Result<Rc<Var>, Error> {
+    pub fn get(&self, name: &Token) -> Result<Var, Error> {
         let ident = name.literal_identifier();
 
         self.fields
@@ -74,14 +74,14 @@ impl Instance {
                 || {
                     self.class
                         .find_method(ident)
-                        .map(|m| Rc::new(Var::Function(Box::new(Rc::clone(&m)))))
+                        .map(|m| Var::Function(Rc::clone(&m)))
                 },
-                |v| Some(Rc::clone(&v)),
+                |v| Some(v.clone()),
             )
             .ok_or(Error::new("Unknown property", name.offset()))
     }
 
-    pub fn set(&mut self, name: &Token, value: &Rc<Var>) {
-        self.fields.insert(name.to_string(), Rc::clone(value));
+    pub fn set(&mut self, name: &Token, value: &Var) {
+        self.fields.insert(name.to_string(), value.clone());
     }
 }

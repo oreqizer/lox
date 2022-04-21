@@ -12,9 +12,9 @@ use crate::{
 };
 
 use super::{
-    callable::{Callable, Function, Native},
     class::Class,
     environment::{Environment, Var},
+    function::{Function, Native},
     value::Value,
 };
 
@@ -32,7 +32,7 @@ impl Interpreter {
 
         globals.borrow_mut().define(
             "clock",
-            Some(Rc::new(Var::Function(Box::new(Native::new(
+            Some(Var::Native(Rc::new(Native::new(
                 "clock",
                 Box::new(|| {
                     Value::Number(
@@ -42,7 +42,7 @@ impl Interpreter {
                             .as_millis() as f64,
                     )
                 }),
-            ))))),
+            )))),
         );
 
         Self {
@@ -60,11 +60,11 @@ impl Interpreter {
     }
 
     pub fn eval(&mut self, expr: &Expr) -> Result<Value, Error> {
-        match self.visit_expr(expr)?.as_ref() {
+        match self.visit_expr(expr)? {
             Var::Value(v) => Ok(v.clone()),
             Var::Class(_) => Err(Error::new("Cannot evaluate a class", 0)),
             Var::Instance(_) => Err(Error::new("Cannot evaluate an instance", 0)),
-            Var::Function(_) => Err(Error::new("Cannot evaluate a function", 0)),
+            Var::Function(_) | Var::Native(_) => Err(Error::new("Cannot evaluate a function", 0)),
         }
     }
 
@@ -76,7 +76,7 @@ impl Interpreter {
         &mut self,
         env: &Rc<RefCell<Environment>>,
         stmts: &[Stmt],
-    ) -> Result<Return<Rc<Var>>, Error> {
+    ) -> Result<Return<Var>, Error> {
         let mut res = Ok(None);
 
         let previous = Rc::clone(&self.env);
@@ -99,7 +99,7 @@ impl Interpreter {
         res
     }
 
-    fn visit_stmt(&mut self, stmt: &Stmt) -> Result<Return<Rc<Var>>, Error> {
+    fn visit_stmt(&mut self, stmt: &Stmt) -> Result<Return<Var>, Error> {
         match stmt {
             Stmt::Block(stmts) => {
                 let env = Rc::new(RefCell::new(Environment::new(&self.env)));
@@ -117,10 +117,10 @@ impl Interpreter {
             Stmt::Function(FunctionStmt { name, params, body }) => {
                 let fun = Function::new(name, &params, body, &self.env, name.offset());
 
-                self.env.as_ref().borrow_mut().define(
-                    name.literal_identifier(),
-                    Some(Rc::new(Var::Function(Box::new(fun)))),
-                );
+                self.env
+                    .as_ref()
+                    .borrow_mut()
+                    .define(name.literal_identifier(), Some(Var::Function(Rc::new(fun))));
                 Ok(None)
             }
             Stmt::If {
@@ -141,7 +141,7 @@ impl Interpreter {
         }
     }
 
-    fn visit_expr(&mut self, expr: &Expr) -> Result<Rc<Var>, Error> {
+    fn visit_expr(&mut self, expr: &Expr) -> Result<Var, Error> {
         match expr {
             Expr::Assign { id, name, value } => {
                 let value = self.visit_expr(value)?;
@@ -160,16 +160,14 @@ impl Interpreter {
                 left,
                 operator,
                 right,
-            } => Ok(Rc::new(Var::Value(
-                self.visit_binary_expr(left, operator, right)?,
-            ))),
-            Expr::Boolean(b) => Ok(Rc::new(Var::Value(Value::Boolean(*b)))),
+            } => Ok(Var::Value(self.visit_binary_expr(left, operator, right)?)),
+            Expr::Boolean(b) => Ok(Var::Value(Value::Boolean(*b))),
             Expr::Call {
                 callee,
                 paren,
                 args,
             } => self.visit_call_expr(callee, paren, args),
-            Expr::Get { object, name } => match self.visit_expr(object)?.as_ref() {
+            Expr::Get { object, name } => match self.visit_expr(object)? {
                 Var::Instance(i) => Ok(i.borrow().get(name)?),
                 _ => Err(Error::new("Only instances have fields", name.offset())),
             },
@@ -177,22 +175,22 @@ impl Interpreter {
             Expr::Lambda { fun, params, body } => {
                 let lambda = Function::new("<lambda>", &params, body, &self.env, fun.offset());
 
-                Ok(Rc::new(Var::Function(Box::new(lambda))))
+                Ok(Var::Function(Rc::new(lambda)))
             }
             Expr::Logical {
                 left,
                 operator,
                 right,
             } => self.visit_logical_expr(left, operator, right),
-            Expr::Nil => Ok(Rc::new(Var::Value(Value::Nil))),
-            Expr::Number(n) => Ok(Rc::new(Var::Value(Value::Number(*n)))),
+            Expr::Nil => Ok(Var::Value(Value::Nil)),
+            Expr::Number(n) => Ok(Var::Value(Value::Number(*n))),
             Expr::Set {
                 object,
                 name,
                 value,
             } => {
                 let object = self.visit_expr(object)?;
-                let instance = match object.as_ref() {
+                let instance = match object {
                     Var::Instance(i) => Ok(i),
                     _ => Err(Error::new("Only instances have fields", name.offset())),
                 }?;
@@ -202,9 +200,9 @@ impl Interpreter {
 
                 Ok(value)
             }
-            Expr::String(s) => Ok(Rc::new(Var::Value(Value::String(s.to_string())))),
+            Expr::String(s) => Ok(Var::Value(Value::String(s.to_string()))),
             Expr::Unary { operator, right } => {
-                Ok(Rc::new(Var::Value(self.visit_unary_expr(operator, right)?)))
+                Ok(Var::Value(self.visit_unary_expr(operator, right)?))
             }
             Expr::Variable { id, name } => self.look_up_var(*id, name),
         }
@@ -215,7 +213,13 @@ impl Interpreter {
             .iter()
             .map(|m| {
                 let name = m.name.to_string();
-                let fun = Rc::new(Function::new(&m.name, &m.params, &m.body, &self.env, m.name.offset()));
+                let fun = Rc::new(Function::new(
+                    &m.name,
+                    &m.params,
+                    &m.body,
+                    &self.env,
+                    m.name.offset(),
+                ));
 
                 (name, fun)
             })
@@ -223,10 +227,10 @@ impl Interpreter {
 
         let class = Class::new(name, methods);
 
-        self.env.as_ref().borrow_mut().define(
-            name.literal_identifier(),
-            Some(Rc::new(Var::Class(Rc::new(class)))),
-        );
+        self.env
+            .as_ref()
+            .borrow_mut()
+            .define(name.literal_identifier(), Some(Var::Class(Rc::new(class))));
         Ok(())
     }
 
@@ -235,7 +239,7 @@ impl Interpreter {
         cond: &Expr,
         then_branch: &Stmt,
         else_branch: Option<&Stmt>,
-    ) -> Result<Return<Rc<Var>>, Error> {
+    ) -> Result<Return<Var>, Error> {
         if self.visit_expr(cond)?.is_truthy() {
             if let Some(v) = self.visit_stmt(then_branch)? {
                 return Ok(Some(v));
@@ -249,7 +253,7 @@ impl Interpreter {
         Ok(None)
     }
 
-    fn visit_while(&mut self, cond: &Expr, body: &Stmt) -> Result<Return<Rc<Var>>, Error> {
+    fn visit_while(&mut self, cond: &Expr, body: &Stmt) -> Result<Return<Var>, Error> {
         while self.visit_expr(cond)?.is_truthy() {
             if let Some(v) = self.visit_stmt(body)? {
                 return Ok(Some(v));
@@ -277,17 +281,12 @@ impl Interpreter {
     // =======
 
     #[inline]
-    fn visit_logical_expr(
-        &mut self,
-        left: &Expr,
-        op: &Token,
-        right: &Expr,
-    ) -> Result<Rc<Var>, Error> {
+    fn visit_logical_expr(&mut self, left: &Expr, op: &Token, right: &Expr) -> Result<Var, Error> {
         use TokenKind::{And, Or};
 
         let left = self.visit_expr(left)?;
 
-        match (op.kind(), left.as_ref()) {
+        match (op.kind(), &left) {
             (Or, Var::Value(val)) => {
                 if val.is_truthy() {
                     Ok(left)
@@ -315,42 +314,33 @@ impl Interpreter {
         callee: &Expr,
         paren: &Token,
         args: &[Expr],
-    ) -> Result<Rc<Var>, Error> {
+    ) -> Result<Var, Error> {
         let expr = self.visit_expr(callee)?;
-        let callee = match expr.as_ref() {
-            Var::Function(f) => f,
-            Var::Class(c) => return self.visit_call_class(c, args),
+        match expr {
             Var::Instance(_) => return Err(Error::new("Instance not callable", paren.offset())),
             Var::Value(_) => return Err(Error::new("Expression not callable", paren.offset())),
+            _ => (),
         };
 
-        let args: Vec<_> = args
+        let args = args
             .iter()
             .map(|t| self.visit_expr(t))
-            .collect::<Result<_, _>>()?;
+            .collect::<Result<Vec<_>, _>>()?;
 
-        callee.call(self, &args)
-    }
-
-    #[inline]
-    fn visit_call_class(
-        &mut self,
-        class: &Rc<Class>,
-        args: &[Expr],
-    ) -> Result<Rc<Var>, Error> {
-        let args: Vec<_> = args
-            .iter()
-            .map(|t| self.visit_expr(t))
-            .collect::<Result<_, _>>()?;
-
-        class.call(self, &args)
+        match expr {
+            Var::Class(c) => c.call(self, &args),
+            Var::Function(c) => c.call(self, &args),
+            Var::Native(c) => c.call(self, &args),
+            // Should not happen™️
+            _ => Err(Error::new("Not callable", paren.offset())),
+        }
     }
 
     #[inline]
     fn visit_unary_expr(&mut self, op: &Token, right: &Expr) -> Result<Value, Error> {
         use TokenKind::{Bang, Minus};
 
-        match (op.kind(), self.visit_expr(right)?.as_ref()) {
+        match (op.kind(), self.visit_expr(right)?) {
             // Numbers
             (Minus, Var::Value(Value::Number(f))) => Ok(Value::Number(-f)),
             // Booleans
@@ -374,7 +364,7 @@ impl Interpreter {
         let left = self.visit_expr(left)?;
         let right = self.visit_expr(right)?;
 
-        match (left.as_ref(), op.kind(), right.as_ref()) {
+        match (left, op.kind(), right) {
             // Numbers
             (Var::Value(Value::Number(f1)), Minus, Var::Value(Value::Number(f2))) => {
                 Ok(Value::Number(f1 - f2))
@@ -426,7 +416,7 @@ impl Interpreter {
     }
 
     #[inline]
-    fn look_up_var(&self, id: usize, token: &Token) -> Result<Rc<Var>, Error> {
+    fn look_up_var(&self, id: usize, token: &Token) -> Result<Var, Error> {
         let name = token.literal_identifier();
         let map_err = |e: String| Error::new(&e, token.offset());
 
