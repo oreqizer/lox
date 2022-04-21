@@ -1,18 +1,7 @@
-var a = "global";
-
-class Kekega {
-  brutally() {
-    return "honest";
+class Bacon {
+  eat() {
+    print "Crunch crunch crunch!";
   }
 }
 
-{
-  fun showA() {
-    print a;
-  }
-
-  showA();
-  var a = "block";
-  showA();
-  print Kekega;
-}
+Bacon().eat(); // Prints "Crunch crunch crunch!".

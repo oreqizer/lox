@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::{parser::Stmt, Error, lexer::Token};
+use crate::{lexer::Token, parser::Stmt, Error};
 
 use super::{
     environment::{Environment, Var},
@@ -48,14 +48,12 @@ impl Function {
                 .get(i)
                 .ok_or(Error::new("Arity mismatch", self.offset))?;
 
-            env.as_ref()
-                .borrow_mut()
-                .define(&param, Some(arg.clone()));
+            env.as_ref().borrow_mut().define(&param, Some(arg.clone()));
         }
 
         match it.execute_block(&env, &self.body)? {
             Some(val) => Ok(val),
-            None => Ok(Var::Value(Value::Nil))
+            None => Ok(Var::Value(Value::Nil)),
         }
     }
 }

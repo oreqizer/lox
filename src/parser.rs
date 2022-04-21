@@ -481,9 +481,7 @@ impl<'a> Parser<'a> {
         loop {
             match self.match_token(&[Dot, LeftParen]) {
                 Some(t) if t.kind() == Dot => {
-                    let name = t.clone();
-                    
-                    self.next_assert(Identifier, "Expect property name after '.'")?;
+                    let name = self.next_assert(Identifier, "Expect property name after '.'")?.clone();
 
                     expr = Expr::Get { object: Box::new(expr), name }
                 },
