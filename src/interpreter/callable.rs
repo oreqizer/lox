@@ -1,6 +1,6 @@
 use std::{cell::RefCell, rc::Rc};
 
-use crate::{parser::Stmt, Error};
+use crate::{parser::Stmt, Error, lexer::Token};
 
 use super::{
     environment::{Environment, Var},
@@ -14,6 +14,20 @@ pub trait Callable {
     fn call(&self, it: &mut Interpreter, args: &[Rc<Var>]) -> Result<Rc<Var>, Error>;
 }
 
+impl<T: Callable> Callable for Rc<T> {
+    fn name(&self) -> &str {
+        Callable::name(self.as_ref())
+    }
+
+    fn offset(&self) -> usize {
+        Callable::offset(self.as_ref())
+    }
+
+    fn call(&self, it: &mut Interpreter, args: &[Rc<Var>]) -> Result<Rc<Var>, Error> {
+        Callable::call(self.as_ref(), it, args)
+    }
+}
+
 pub struct Function {
     name: String,
     params: Vec<String>,
@@ -24,15 +38,15 @@ pub struct Function {
 
 impl Function {
     pub fn new(
-        name: &str,
-        params: &[String],
+        name: impl ToString,
+        params: &[Token],
         body: &[Stmt],
         closure: &Rc<RefCell<Environment>>,
         offset: usize,
     ) -> Self {
         Self {
             name: name.to_string(),
-            params: params.into(),
+            params: params.iter().map(|t| t.to_string()).collect(),
             body: body.into(),
             closure: Rc::clone(closure),
             offset,

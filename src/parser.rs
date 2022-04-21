@@ -22,6 +22,10 @@ pub enum Expr {
         paren: Token,
         args: Vec<Expr>,
     },
+    Get {
+        object: Box<Expr>,
+        name: Token,
+    },
     Grouping(Box<Expr>),
     Lambda {
         fun: Token,
@@ -35,6 +39,11 @@ pub enum Expr {
     },
     Nil,
     Number(f64),
+    Set {
+        object: Box<Expr>,
+        name: Token,
+        value: Box<Expr>,
+    },
     String(String),
     Unary {
         operator: Token,
@@ -353,7 +362,7 @@ impl<'a> Parser<'a> {
         self.assignment()
     }
 
-    // assignment → IDENTIFIER "=" assignment
+    // assignment → ( call "." )? IDENTIFIER "=" assignment
     //            | logic_or ;
     fn assignment(&mut self) -> Result<Expr, Error> {
         use TokenKind::*;
@@ -369,6 +378,11 @@ impl<'a> Parser<'a> {
             match expr {
                 Expr::Variable { name, .. } => Ok(Expr::Assign {
                     id: self.id,
+                    name,
+                    value: Box::new(value),
+                }),
+                Expr::Get { object, name } => Ok(Expr::Set {
+                    object,
                     name,
                     value: Box::new(value),
                 }),
@@ -457,7 +471,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // call      → primary ( "(" arguments? ")" )* ;
+    // call      → primary ( "(" arguments? ")" | "." IDENTIFIER )* ;
     // arguments → expression ( "," expression )* ;
     fn call(&mut self) -> Result<Expr, Error> {
         use TokenKind::*;
@@ -465,8 +479,15 @@ impl<'a> Parser<'a> {
         let mut expr = self.primary()?;
 
         loop {
-            match self.match_token(&[LeftParen]) {
-                Some(t) => {
+            match self.match_token(&[Dot, LeftParen]) {
+                Some(t) if t.kind() == Dot => {
+                    let name = t.clone();
+                    
+                    self.next_assert(Identifier, "Expect property name after '.'")?;
+
+                    expr = Expr::Get { object: Box::new(expr), name }
+                },
+                Some(t) if t.kind() == LeftParen => {
                     let paren = t.clone();
                     let mut args = Vec::new();
 
@@ -496,7 +517,7 @@ impl<'a> Parser<'a> {
                         args,
                     };
                 }
-                None => break,
+                _ => break,
             }
         }
 

@@ -12,7 +12,7 @@ use crate::{
 };
 
 use super::{
-    callable::{Function, Native},
+    callable::{Callable, Function, Native},
     class::Class,
     environment::{Environment, Var},
     value::Value,
@@ -62,8 +62,9 @@ impl Interpreter {
     pub fn eval(&mut self, expr: &Expr) -> Result<Value, Error> {
         match self.visit_expr(expr)?.as_ref() {
             Var::Value(v) => Ok(v.clone()),
-            Var::Function(f) => Err(Error::new("Cannot evaluate a function", f.offset())),
-            Var::Class(c) => Err(Error::new("Cannot evaluate a class", c.offset())),
+            Var::Class(_) => Err(Error::new("Cannot evaluate a class", 0)),
+            Var::Instance(_) => Err(Error::new("Cannot evaluate an instance", 0)),
+            Var::Function(_) => Err(Error::new("Cannot evaluate a function", 0)),
         }
     }
 
@@ -114,13 +115,7 @@ impl Interpreter {
                 Ok(None)
             }
             Stmt::Function(FunctionStmt { name, params, body }) => {
-                let fun = Function::new(
-                    name.literal_identifier(),
-                    &params.iter().map(|t| t.to_string()).collect::<Vec<_>>(),
-                    body,
-                    &self.env,
-                    name.offset(),
-                );
+                let fun = Function::new(name, &params, body, &self.env, name.offset());
 
                 self.env.as_ref().borrow_mut().define(
                     name.literal_identifier(),
@@ -174,15 +169,13 @@ impl Interpreter {
                 paren,
                 args,
             } => self.visit_call_expr(callee, paren, args),
+            Expr::Get { object, name } => match self.visit_expr(object)?.as_ref() {
+                Var::Instance(i) => Ok(i.borrow().get(name)?),
+                _ => Err(Error::new("Only instances have fields", name.offset())),
+            },
             Expr::Grouping(e) => self.visit_expr(e.as_ref()),
             Expr::Lambda { fun, params, body } => {
-                let lambda = Function::new(
-                    "<lambda>",
-                    &params.iter().map(|t| t.to_string()).collect::<Vec<_>>(),
-                    body,
-                    &self.env,
-                    fun.offset(),
-                );
+                let lambda = Function::new("<lambda>", &params, body, &self.env, fun.offset());
 
                 Ok(Rc::new(Var::Function(Box::new(lambda))))
             }
@@ -193,6 +186,22 @@ impl Interpreter {
             } => self.visit_logical_expr(left, operator, right),
             Expr::Nil => Ok(Rc::new(Var::Value(Value::Nil))),
             Expr::Number(n) => Ok(Rc::new(Var::Value(Value::Number(*n)))),
+            Expr::Set {
+                object,
+                name,
+                value,
+            } => {
+                let object = self.visit_expr(object)?;
+                let instance = match object.as_ref() {
+                    Var::Instance(i) => Ok(i),
+                    _ => Err(Error::new("Only instances have fields", name.offset())),
+                }?;
+                let value = self.visit_expr(value)?;
+
+                instance.borrow_mut().set(name, &value);
+
+                Ok(value)
+            }
             Expr::String(s) => Ok(Rc::new(Var::Value(Value::String(s.to_string())))),
             Expr::Unary { operator, right } => {
                 Ok(Rc::new(Var::Value(self.visit_unary_expr(operator, right)?)))
@@ -202,12 +211,22 @@ impl Interpreter {
     }
 
     fn visit_class_stmt(&mut self, name: &Token, methods: &[FunctionStmt]) -> Result<(), Error> {
-        let class = Class::new(name);
+        let methods = methods
+            .iter()
+            .map(|m| {
+                let name = m.name.to_string();
+                let fun = Rc::new(Function::new(&m.name, &m.params, &m.body, &self.env, m.name.offset()));
 
-        self.env
-            .as_ref()
-            .borrow_mut()
-            .define(name.literal_identifier(), Some(Rc::new(Var::Class(class))));
+                (name, fun)
+            })
+            .collect::<HashMap<String, Rc<Function>>>();
+
+        let class = Class::new(name, methods);
+
+        self.env.as_ref().borrow_mut().define(
+            name.literal_identifier(),
+            Some(Rc::new(Var::Class(Rc::new(class)))),
+        );
         Ok(())
     }
 
@@ -300,7 +319,8 @@ impl Interpreter {
         let expr = self.visit_expr(callee)?;
         let callee = match expr.as_ref() {
             Var::Function(f) => f,
-            Var::Class(c) => todo!(),
+            Var::Class(c) => return self.visit_call_class(c, args),
+            Var::Instance(_) => return Err(Error::new("Instance not callable", paren.offset())),
             Var::Value(_) => return Err(Error::new("Expression not callable", paren.offset())),
         };
 
@@ -310,6 +330,20 @@ impl Interpreter {
             .collect::<Result<_, _>>()?;
 
         callee.call(self, &args)
+    }
+
+    #[inline]
+    fn visit_call_class(
+        &mut self,
+        class: &Rc<Class>,
+        args: &[Expr],
+    ) -> Result<Rc<Var>, Error> {
+        let args: Vec<_> = args
+            .iter()
+            .map(|t| self.visit_expr(t))
+            .collect::<Result<_, _>>()?;
+
+        class.call(self, &args)
     }
 
     #[inline]

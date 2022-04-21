@@ -10,6 +10,7 @@ use crate::{
 enum FunctionType {
     None,
     Function,
+    Method,
 }
 
 pub struct Resolver {
@@ -48,11 +49,16 @@ impl Resolver {
                 }
                 Ok(())
             }
+            Expr::Get { object, .. } => self.visit_expr(object),
             Expr::Grouping(expr) => self.visit_expr(expr),
             Expr::Logical { left, right, .. } => {
                 self.visit_expr(left)?;
                 self.visit_expr(right)
             }
+            Expr::Set { object, value, .. } => {
+                self.visit_expr(object)?;
+                self.visit_expr(value)
+            },
             Expr::Unary { right, .. } => self.visit_expr(right),
             Expr::Variable { id, name } => self.visit_var_expr(*id, name),
             _ => Ok(()),
@@ -62,7 +68,7 @@ impl Resolver {
     fn visit_stmt(&mut self, stmt: &Stmt) -> Result<(), Error> {
         match stmt {
             Stmt::Block(body) => self.visit_block_stmt(body),
-            Stmt::Class { name, .. } => self.visit_class_stmt(name),
+            Stmt::Class { name, methods } => self.visit_class_stmt(name, methods),
             Stmt::Expr(expr) => self.visit_expr(expr),
             Stmt::Function(Function { name, params, body }) => self.visit_fun_decl(name, params, body),
             Stmt::If {
@@ -103,8 +109,11 @@ impl Resolver {
         Ok(())
     }
 
-    fn visit_class_stmt(&mut self, name: &Token) -> Result<(), Error> {
+    fn visit_class_stmt(&mut self, name: &Token, methods: &[Function]) -> Result<(), Error> {
         self.declare(name);
+        for m in methods {
+            self.resolve_function(&m.params, &m.body, FunctionType::Method)?;
+        }
         self.define(name);
         Ok(())
     }
