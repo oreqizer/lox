@@ -59,6 +59,10 @@ impl Resolver {
                 self.visit_expr(object)?;
                 self.visit_expr(value)
             },
+            Expr::This { id, keyword } => {
+                self.resolve_local(*id, keyword);
+                Ok(())
+            },
             Expr::Unary { right, .. } => self.visit_expr(right),
             Expr::Variable { id, name } => self.visit_var_expr(*id, name),
             _ => Ok(()),
@@ -111,10 +115,17 @@ impl Resolver {
 
     fn visit_class_stmt(&mut self, name: &Token, methods: &[Function]) -> Result<(), Error> {
         self.declare(name);
+        self.define(name);
+
+        self.scope_start();
+        if let Some(s) = self.scopes.last_mut() {
+            s.insert("this".to_string(), true);
+        }
+
         for m in methods {
             self.resolve_function(&m.params, &m.body, FunctionType::Method)?;
         }
-        self.define(name);
+        self.scope_end();
         Ok(())
     }
 
@@ -190,7 +201,7 @@ impl Resolver {
                 self.interpreter
                     .as_ref()
                     .borrow_mut()
-                    .resolve(id, self.scopes.len() - i - 1)
+                    .resolve(id, i)
             }
         });
     }

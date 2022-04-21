@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
 use crate::{lexer::Token, Error, Interpreter};
 
-use super::{function::Function, environment::Var};
+use super::{environment::Var, function::Function};
 
 pub struct Class {
     name: String,
@@ -25,11 +25,7 @@ impl Class {
         }
     }
 
-    pub fn call(
-        self: &Rc<Self>,
-        _it: &mut Interpreter,
-        _args: &[Var],
-    ) -> Result<Var, Error> {
+    pub fn call(self: &Rc<Self>, _it: &mut Interpreter, _args: &[Var]) -> Result<Var, Error> {
         Ok(Var::Instance(Rc::new(RefCell::new(Instance::new(&self)))))
     }
 
@@ -65,16 +61,17 @@ impl Instance {
         }
     }
 
-    pub fn get(&self, name: &Token) -> Result<Var, Error> {
+    pub fn get(from: &Rc<RefCell<Self>>, name: &Token) -> Result<Var, Error> {
         let ident = name.literal_identifier();
-
-        self.fields
+        let i = from.as_ref().borrow();
+        
+        i.fields
             .get(ident)
             .map_or_else(
                 || {
-                    self.class
+                    i.class
                         .find_method(ident)
-                        .map(|m| Var::Function(Rc::clone(&m)))
+                        .map(|m| Var::Function(Rc::new(m.bind(from))))
                 },
                 |v| Some(v.clone()),
             )

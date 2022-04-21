@@ -12,7 +12,7 @@ use crate::{
 };
 
 use super::{
-    class::Class,
+    class::{Class, Instance},
     environment::{Environment, Var},
     function::{Function, Native},
     value::Value,
@@ -168,7 +168,7 @@ impl Interpreter {
                 args,
             } => self.visit_call_expr(callee, paren, args),
             Expr::Get { object, name } => match self.visit_expr(object)? {
-                Var::Instance(i) => Ok(i.borrow().get(name)?),
+                Var::Instance(i) => Ok(Instance::get(&i, name)?),
                 _ => Err(Error::new("Only instances have fields", name.offset())),
             },
             Expr::Grouping(e) => self.visit_expr(e.as_ref()),
@@ -201,6 +201,7 @@ impl Interpreter {
                 Ok(value)
             }
             Expr::String(s) => Ok(Var::Value(Value::String(s.to_string()))),
+            Expr::This { id, keyword } => self.look_up_var(*id, keyword),
             Expr::Unary { operator, right } => {
                 Ok(Var::Value(self.visit_unary_expr(operator, right)?))
             }

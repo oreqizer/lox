@@ -3,6 +3,7 @@ use std::{cell::RefCell, rc::Rc};
 use crate::{lexer::Token, parser::Stmt, Error};
 
 use super::{
+    class::Instance,
     environment::{Environment, Var},
     interpreter::Interpreter,
     value::Value,
@@ -54,6 +55,18 @@ impl Function {
         match it.execute_block(&env, &self.body)? {
             Some(val) => Ok(val),
             None => Ok(Var::Value(Value::Nil)),
+        }
+    }
+
+    pub fn bind(&self, this: &Rc<RefCell<Instance>>) -> Self {
+        let mut env = Environment::new(&self.closure);
+        env.define("this", Some(Var::Instance(Rc::clone(this))));
+        Function {
+            name: self.name.clone(),
+            params: self.params.clone(),
+            body: self.body.clone(),
+            closure: Rc::new(RefCell::new(env)),
+            offset: self.offset,
         }
     }
 }

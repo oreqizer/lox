@@ -45,6 +45,10 @@ pub enum Expr {
         value: Box<Expr>,
     },
     String(String),
+    This {
+        id: usize,
+        keyword: Token,
+    },
     Unary {
         operator: Token,
         right: Box<Expr>,
@@ -184,7 +188,7 @@ impl<'a> Parser<'a> {
         }
 
         self.next_assert(RightBrace, "Expect '}' after class body")?;
-        
+
         Ok(Stmt::Class { name, methods })
     }
 
@@ -481,10 +485,15 @@ impl<'a> Parser<'a> {
         loop {
             match self.match_token(&[Dot, LeftParen]) {
                 Some(t) if t.kind() == Dot => {
-                    let name = self.next_assert(Identifier, "Expect property name after '.'")?.clone();
+                    let name = self
+                        .next_assert(Identifier, "Expect property name after '.'")?
+                        .clone();
 
-                    expr = Expr::Get { object: Box::new(expr), name }
-                },
+                    expr = Expr::Get {
+                        object: Box::new(expr),
+                        name,
+                    }
+                }
                 Some(t) if t.kind() == LeftParen => {
                     let paren = t.clone();
                     let mut args = Vec::new();
@@ -522,7 +531,7 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    // primary → "true" | "false" | "nil"
+    // primary → "true" | "false" | "nil" | "this"
     //         | NUMBER | STRING
     //         | "fun" functionDecl
     //         | "(" expression ")"
@@ -532,11 +541,7 @@ impl<'a> Parser<'a> {
 
         if let Some(&token) = self.tokens.peek() {
             return match token.kind() {
-                True => self.next_ok(Expr::Boolean(true)),
                 False => self.next_ok(Expr::Boolean(false)),
-                Nil => self.next_ok(Expr::Nil),
-                Number => self.next_ok(Expr::Number(token.literal_number())),
-                String => self.next_ok(Expr::String(token.literal_string().to_string())),
                 Fun => {
                     self.tokens.next();
 
@@ -548,14 +553,6 @@ impl<'a> Parser<'a> {
                         body,
                     })
                 }
-                LeftParen => {
-                    self.tokens.next();
-
-                    let expr = self.expression()?;
-                    self.next_assert(RightParen, "Expect ')' after expression")?;
-
-                    Ok(Expr::Grouping(Box::new(expr)))
-                }
                 Identifier => {
                     self.id += 1;
 
@@ -564,6 +561,26 @@ impl<'a> Parser<'a> {
                         name: token.clone(),
                     })
                 }
+                LeftParen => {
+                    self.tokens.next();
+
+                    let expr = self.expression()?;
+                    self.next_assert(RightParen, "Expect ')' after expression")?;
+
+                    Ok(Expr::Grouping(Box::new(expr)))
+                }
+                Nil => self.next_ok(Expr::Nil),
+                Number => self.next_ok(Expr::Number(token.literal_number())),
+                String => self.next_ok(Expr::String(token.literal_string().to_string())),
+                This => {
+                    self.id += 1;
+
+                    self.next_ok(Expr::This {
+                        id: self.id,
+                        keyword: token.clone(),
+                    })
+                }
+                True => self.next_ok(Expr::Boolean(true)),
                 _ => Err(Error::new("Unexpected token", token.offset())),
             };
         }
