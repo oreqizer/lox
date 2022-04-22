@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
     lexer::Token,
-    parser::{Expr, Stmt, Function},
+    parser::{Expr, Function, Stmt},
     Error, Interpreter,
 };
 
@@ -13,10 +13,17 @@ enum FunctionType {
     Method,
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum ClassType {
+    None,
+    Class,
+}
+
 pub struct Resolver {
     scopes: Vec<HashMap<String, bool>>,
     interpreter: Rc<RefCell<Interpreter>>,
     current_fn: FunctionType,
+    current_class: ClassType,
 }
 
 impl Resolver {
@@ -25,6 +32,7 @@ impl Resolver {
             scopes: Vec::new(),
             interpreter: Rc::clone(interpreter),
             current_fn: FunctionType::None,
+            current_class: ClassType::None,
         }
     }
 
@@ -58,11 +66,18 @@ impl Resolver {
             Expr::Set { object, value, .. } => {
                 self.visit_expr(object)?;
                 self.visit_expr(value)
-            },
+            }
             Expr::This { id, keyword } => {
+                if self.current_class == ClassType::None {
+                    return Err(Error::new(
+                        "Can't use 'this' outside of a class",
+                        keyword.offset(),
+                    ));
+                }
+
                 self.resolve_local(*id, keyword);
                 Ok(())
-            },
+            }
             Expr::Unary { right, .. } => self.visit_expr(right),
             Expr::Variable { id, name } => self.visit_var_expr(*id, name),
             _ => Ok(()),
@@ -74,7 +89,9 @@ impl Resolver {
             Stmt::Block(body) => self.visit_block_stmt(body),
             Stmt::Class { name, methods } => self.visit_class_stmt(name, methods),
             Stmt::Expr(expr) => self.visit_expr(expr),
-            Stmt::Function(Function { name, params, body }) => self.visit_fun_decl(name, params, body),
+            Stmt::Function(Function { name, params, body }) => {
+                self.visit_fun_decl(name, params, body)
+            }
             Stmt::If {
                 cond,
                 then_branch,
@@ -114,6 +131,9 @@ impl Resolver {
     }
 
     fn visit_class_stmt(&mut self, name: &Token, methods: &[Function]) -> Result<(), Error> {
+        let enclosing_class = self.current_class;
+        self.current_class = ClassType::Class;
+
         self.declare(name);
         self.define(name);
 
@@ -126,6 +146,8 @@ impl Resolver {
             self.resolve_function(&m.params, &m.body, FunctionType::Method)?;
         }
         self.scope_end();
+
+        self.current_class = enclosing_class;
         Ok(())
     }
 
@@ -198,10 +220,7 @@ impl Resolver {
     fn resolve_local(&mut self, id: usize, name: &Token) {
         self.scopes.iter().rev().enumerate().for_each(|(i, s)| {
             if s.contains_key(name.literal_identifier()) {
-                self.interpreter
-                    .as_ref()
-                    .borrow_mut()
-                    .resolve(id, i)
+                self.interpreter.as_ref().borrow_mut().resolve(id, i)
             }
         });
     }

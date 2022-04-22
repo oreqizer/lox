@@ -25,8 +25,12 @@ impl Class {
         }
     }
 
-    pub fn call(self: &Rc<Self>, _it: &mut Interpreter, _args: &[Var]) -> Result<Var, Error> {
-        Ok(Var::Instance(Rc::new(RefCell::new(Instance::new(&self)))))
+    pub fn call(self: &Rc<Self>, it: &mut Interpreter, args: &[Var]) -> Result<Var, Error> {
+        let i = Rc::new(RefCell::new(Instance::new(&self)));
+        if let Some(m) = self.find_method("init") {
+            m.bind(&i).call(it, args)?;
+        }
+        Ok(Var::Instance(i))
     }
 
     pub fn name(&self) -> &str {
@@ -64,7 +68,7 @@ impl Instance {
     pub fn get(from: &Rc<RefCell<Self>>, name: &Token) -> Result<Var, Error> {
         let ident = name.literal_identifier();
         let i = from.as_ref().borrow();
-        
+
         i.fields
             .get(ident)
             .map_or_else(
