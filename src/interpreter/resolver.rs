@@ -154,9 +154,9 @@ impl Resolver {
 
         for m in methods {
             let kind = if m.name.literal_identifier() == "init" {
-                FunctionType::Method
-            } else {
                 FunctionType::Initializer
+            } else {
+                FunctionType::Method
             };
 
             self.resolve_function(&m.params, &m.body, kind)?;
