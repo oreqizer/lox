@@ -14,6 +14,7 @@ pub struct Function {
     params: Vec<String>,
     body: Vec<Stmt>,
     closure: Rc<RefCell<Environment>>,
+    is_initializer: bool,
     offset: usize,
 }
 
@@ -30,7 +31,21 @@ impl Function {
             params: params.iter().map(|t| t.to_string()).collect(),
             body: body.into(),
             closure: Rc::clone(closure),
+            is_initializer: false,
             offset,
+        }
+    }
+
+    pub fn new_init(
+        name: impl ToString,
+        params: &[Token],
+        body: &[Stmt],
+        closure: &Rc<RefCell<Environment>>,
+        offset: usize,
+    ) -> Self {
+        Self {
+            is_initializer: true,
+            ..Function::new(name, params, body, closure, offset)
         }
     }
 
@@ -54,6 +69,8 @@ impl Function {
 
         match it.execute_block(&env, &self.body)? {
             Some(val) => Ok(val),
+            None if self.is_initializer => Environment::get_at(&self.closure, "this", 0)
+                .map_err(|e| Error::new(&e, self.offset)),
             None => Ok(Var::Value(Value::Nil)),
         }
     }
@@ -66,6 +83,7 @@ impl Function {
             params: self.params.clone(),
             body: self.body.clone(),
             closure: Rc::new(RefCell::new(env)),
+            is_initializer: self.is_initializer,
             offset: self.offset,
         }
     }

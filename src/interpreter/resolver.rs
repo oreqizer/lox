@@ -10,6 +10,7 @@ use crate::{
 enum FunctionType {
     None,
     Function,
+    Initializer,
     Method,
 }
 
@@ -106,12 +107,21 @@ impl Resolver {
             }
             Stmt::Print(expr) => self.visit_expr(expr),
             Stmt::Return { token, value } => {
-                if let FunctionType::None = self.current_fn {
-                    return Err(Error::new(
-                        "Cannot return from top-level code",
-                        token.offset(),
-                    ));
-                }
+                match self.current_fn {
+                    FunctionType::None => {
+                        return Err(Error::new(
+                            "Cannot return from top-level code",
+                            token.offset(),
+                        ))
+                    }
+                    FunctionType::Initializer if value != &Expr::Nil => {
+                        return Err(Error::new(
+                            "Can't return a value from an initializer",
+                            token.offset(),
+                        ))
+                    }
+                    _ => (),
+                };
 
                 self.visit_expr(value)
             }
@@ -143,7 +153,13 @@ impl Resolver {
         }
 
         for m in methods {
-            self.resolve_function(&m.params, &m.body, FunctionType::Method)?;
+            let kind = if m.name.literal_identifier() == "init" {
+                FunctionType::Method
+            } else {
+                FunctionType::Initializer
+            };
+
+            self.resolve_function(&m.params, &m.body, kind)?;
         }
         self.scope_end();
 

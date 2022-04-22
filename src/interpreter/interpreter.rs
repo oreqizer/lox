@@ -214,7 +214,13 @@ impl Interpreter {
             .iter()
             .map(|m| {
                 let name = m.name.to_string();
-                let fun = Rc::new(Function::new(
+                let make_fun = if m.name.literal_identifier() == "init" {
+                    Function::new_init
+                } else {
+                    Function::new
+                };
+                
+                let fun = Rc::new(make_fun(
                     &m.name,
                     &m.params,
                     &m.body,
@@ -278,8 +284,7 @@ impl Interpreter {
         Ok(())
     }
 
-    // HELPERS
-    // =======
+    // === Helpers ===
 
     #[inline]
     fn visit_logical_expr(&mut self, left: &Expr, op: &Token, right: &Expr) -> Result<Var, Error> {
