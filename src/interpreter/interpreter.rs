@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     lexer::{Token, TokenKind},
-    parser::{Expr, Function as FunctionStmt, Stmt},
+    parser::{Expr, Function as FunctionStmt, Stmt, Variable},
     Error,
 };
 
@@ -106,8 +106,12 @@ impl Interpreter {
 
                 self.execute_block(&env, stmts)
             }
-            Stmt::Class { name, methods } => {
-                self.visit_class_stmt(name, methods)?;
+            Stmt::Class {
+                name,
+                superclass,
+                methods,
+            } => {
+                self.visit_class_stmt(name, superclass.as_ref(), methods)?;
                 Ok(None)
             }
             Stmt::Expr(e) => {
@@ -201,15 +205,29 @@ impl Interpreter {
                 Ok(value)
             }
             Expr::String(s) => Ok(Var::Value(Value::String(s.to_string()))),
-            Expr::This { id, keyword } => self.look_up_var(*id, keyword),
+            Expr::This(Variable { id, name }) => self.look_up_var(*id, name),
             Expr::Unary { operator, right } => {
                 Ok(Var::Value(self.visit_unary_expr(operator, right)?))
             }
-            Expr::Variable { id, name } => self.look_up_var(*id, name),
+            Expr::Variable(Variable { id, name }) => self.look_up_var(*id, name),
         }
     }
 
-    fn visit_class_stmt(&mut self, name: &Token, methods: &[FunctionStmt]) -> Result<(), Error> {
+    fn visit_class_stmt(
+        &mut self,
+        name: &Token,
+        superclass: Option<&Variable>,
+        methods: &[FunctionStmt],
+    ) -> Result<(), Error> {
+        let superclass = if let Some(var) = superclass {
+            match self.visit_expr(&Expr::Variable(var.clone()))? {
+                Var::Class(c) => Some(c),
+                _ => return Err(Error::new("Superclass must be a class", var.offset())),
+            }
+        } else {
+            None
+        };
+
         let methods = methods
             .iter()
             .map(|m| {
@@ -219,7 +237,7 @@ impl Interpreter {
                 } else {
                     Function::new
                 };
-                
+
                 let fun = Rc::new(make_fun(
                     &m.name,
                     &m.params,
@@ -232,7 +250,7 @@ impl Interpreter {
             })
             .collect::<HashMap<String, Rc<Function>>>();
 
-        let class = Class::new(name, methods);
+        let class = Class::new(name, superclass, methods);
 
         self.env
             .as_ref()

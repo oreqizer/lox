@@ -5,6 +5,29 @@ use crate::error::Error;
 use crate::lexer::{Token, TokenKind};
 
 #[derive(Clone, Debug, PartialEq)]
+pub struct Variable {
+    pub id: usize,
+    pub name: Token,
+}
+
+impl Variable {
+    fn new(id: usize, name: Token) -> Self {
+        Self {
+            id,
+            name,
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        self.name.literal_identifier()
+    }
+
+    pub fn offset(&self) -> usize {
+        self.name.offset()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
 pub enum Expr {
     Assign {
         id: usize,
@@ -45,18 +68,12 @@ pub enum Expr {
         value: Box<Expr>,
     },
     String(String),
-    This {
-        id: usize,
-        keyword: Token,
-    },
+    This(Variable),
     Unary {
         operator: Token,
         right: Box<Expr>,
     },
-    Variable {
-        id: usize,
-        name: Token,
-    },
+    Variable(Variable),
 }
 
 impl Eq for Expr {}
@@ -87,6 +104,7 @@ pub enum Stmt {
     Block(Vec<Stmt>),
     Class {
         name: Token,
+        superclass: Option<Variable>,
         methods: Vec<Function>,
     },
     Expr(Expr),
@@ -174,12 +192,22 @@ impl<'a> Parser<'a> {
         }
     }
 
-    // classDecl → "class" IDENTIFIER "{" function* "}" ;
+    // classDecl → "class" IDENTIFIER ( "<" IDENTIFIER )?
+    //             "{" function* "}" ;
     fn class_decl(&mut self) -> Result<Stmt, Error> {
         use TokenKind::*;
 
         // "class" already matched
         let name = self.next_assert(Identifier, "Expect class name")?.clone();
+
+        let superclass = match self.match_token(&[Less]) {
+            Some(_) => {
+                let name = self.next_assert(Identifier, "Expect superclass name")?.clone();
+                Some(self.make_var(name))
+            }
+            None => None,
+        };
+
         self.next_assert(LeftBrace, "Expect '{' before class body")?;
 
         let mut methods = Vec::new();
@@ -189,7 +217,11 @@ impl<'a> Parser<'a> {
 
         self.next_assert(RightBrace, "Expect '}' after class body")?;
 
-        Ok(Stmt::Class { name, methods })
+        Ok(Stmt::Class {
+            name,
+            superclass,
+            methods,
+        })
     }
 
     // funDecl → "fun" function ;
@@ -380,9 +412,9 @@ impl<'a> Parser<'a> {
             self.id += 1;
 
             match expr {
-                Expr::Variable { name, .. } => Ok(Expr::Assign {
+                Expr::Variable(var) => Ok(Expr::Assign {
                     id: self.id,
-                    name,
+                    name: var.name,
                     value: Box::new(value),
                 }),
                 Expr::Get { object, name } => Ok(Expr::Set {
@@ -554,13 +586,9 @@ impl<'a> Parser<'a> {
                     })
                 }
                 Identifier => {
-                    self.id += 1;
-
-                    self.next_ok(Expr::Variable {
-                        id: self.id,
-                        name: token.clone(),
-                    })
-                }
+                    let var = self.make_var(token.clone());
+                    self.next_ok(Expr::Variable(var))
+                },
                 LeftParen => {
                     self.tokens.next();
 
@@ -573,13 +601,9 @@ impl<'a> Parser<'a> {
                 Number => self.next_ok(Expr::Number(token.literal_number())),
                 String => self.next_ok(Expr::String(token.literal_string().to_string())),
                 This => {
-                    self.id += 1;
-
-                    self.next_ok(Expr::This {
-                        id: self.id,
-                        keyword: token.clone(),
-                    })
-                }
+                    let var = self.make_var(token.clone());
+                    self.next_ok(Expr::This(var))
+                },
                 True => self.next_ok(Expr::Boolean(true)),
                 _ => Err(Error::new("Unexpected token", token.offset())),
             };
@@ -756,6 +780,12 @@ impl<'a> Parser<'a> {
             "Unexpected end of input",
             self.tokens.clone().last().map_or(0, |t| t.offset()),
         ))
+    }
+
+    #[inline]
+    fn make_var(&mut self, name: Token) -> Variable {
+        self.id += 1;
+        Variable::new(self.id, name)
     }
 }
 

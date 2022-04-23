@@ -2,7 +2,7 @@ use std::{cell::RefCell, collections::HashMap, rc::Rc};
 
 use crate::{
     lexer::Token,
-    parser::{Expr, Function, Stmt},
+    parser::{Expr, Function, Stmt, Variable},
     Error, Interpreter,
 };
 
@@ -68,19 +68,19 @@ impl Resolver {
                 self.visit_expr(object)?;
                 self.visit_expr(value)
             }
-            Expr::This { id, keyword } => {
+            Expr::This(Variable { id, name }) => {
                 if self.current_class == ClassType::None {
                     return Err(Error::new(
                         "Can't use 'this' outside of a class",
-                        keyword.offset(),
+                        name.offset(),
                     ));
                 }
 
-                self.resolve_local(*id, keyword);
+                self.resolve_local(*id, name);
                 Ok(())
             }
             Expr::Unary { right, .. } => self.visit_expr(right),
-            Expr::Variable { id, name } => self.visit_var_expr(*id, name),
+            Expr::Variable(Variable { id, name }) => self.visit_var_expr(*id, name),
             _ => Ok(()),
         }
     }
@@ -88,7 +88,11 @@ impl Resolver {
     fn visit_stmt(&mut self, stmt: &Stmt) -> Result<(), Error> {
         match stmt {
             Stmt::Block(body) => self.visit_block_stmt(body),
-            Stmt::Class { name, methods } => self.visit_class_stmt(name, methods),
+            Stmt::Class {
+                name,
+                superclass,
+                methods,
+            } => self.visit_class_stmt(name, superclass.as_ref(), methods),
             Stmt::Expr(expr) => self.visit_expr(expr),
             Stmt::Function(Function { name, params, body }) => {
                 self.visit_fun_decl(name, params, body)
@@ -140,12 +144,25 @@ impl Resolver {
         Ok(())
     }
 
-    fn visit_class_stmt(&mut self, name: &Token, methods: &[Function]) -> Result<(), Error> {
+    fn visit_class_stmt(
+        &mut self,
+        name: &Token,
+        superclass: Option<&Variable>,
+        methods: &[Function],
+    ) -> Result<(), Error> {
         let enclosing_class = self.current_class;
         self.current_class = ClassType::Class;
 
         self.declare(name);
         self.define(name);
+
+        if let Some(var) = superclass {
+            if var.name() == name.literal_identifier() {
+                return Err(Error::new("A class can't inherit from itself", var.offset()));
+            }
+
+            self.visit_expr(&Expr::Variable(var.clone()))?;
+        }
 
         self.scope_start();
         if let Some(s) = self.scopes.last_mut() {

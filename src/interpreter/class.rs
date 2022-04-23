@@ -6,6 +6,7 @@ use super::{environment::Var, function::Function};
 
 pub struct Class {
     name: String,
+    superclass: Option<Rc<Class>>,
     methods: HashMap<String, Rc<Function>>,
     offset: usize,
 }
@@ -17,9 +18,14 @@ impl fmt::Display for Class {
 }
 
 impl Class {
-    pub fn new(name: &Token, methods: HashMap<String, Rc<Function>>) -> Self {
+    pub fn new(
+        name: &Token,
+        superclass: Option<Rc<Class>>,
+        methods: HashMap<String, Rc<Function>>,
+    ) -> Self {
         Self {
             name: name.to_string(),
+            superclass,
             methods,
             offset: name.offset(),
         }
@@ -42,7 +48,10 @@ impl Class {
     }
 
     fn find_method(&self, name: &str) -> Option<Rc<Function>> {
-        self.methods.get(name).map(|f| Rc::clone(f))
+        self.methods
+            .get(name)
+            .map(|f| Rc::clone(f))
+            .or_else(|| self.superclass.as_ref().and_then(|c| c.find_method(name)))
     }
 }
 
