@@ -1,6 +1,6 @@
 use std::{cell::RefCell, io::Write, rc::Rc};
 
-use lox::{
+use lox_walker::{
     interpreter::Resolver, lexer::Token, parser::Expr, parser::Stmt, Interpreter, Lexer, Parser,
 };
 
