@@ -34,7 +34,7 @@ impl fmt::Display for Var {
 
 pub struct Environment {
     vars: HashMap<String, Option<Var>>,
-    enclosing: Option<Rc<RefCell<Environment>>>,
+    pub enclosing: Option<Rc<RefCell<Environment>>>,
 }
 
 impl Default for Environment {
@@ -47,11 +47,15 @@ impl Default for Environment {
 }
 
 impl Environment {
-    pub fn new(enclosing: &Rc<RefCell<Environment>>) -> Self {
+    pub fn new(enclosing: &Rc<RefCell<Self>>) -> Self {
         Self {
             enclosing: Some(Rc::clone(enclosing)),
             ..Default::default()
         }
+    }
+
+    pub fn enclosing(&self) -> Option<Rc<RefCell<Self>>> {
+        self.enclosing.as_ref().map(|e| Rc::clone(e))
     }
 
     pub fn define(&mut self, name: &str, value: Option<Var>) {

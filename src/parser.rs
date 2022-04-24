@@ -12,10 +12,7 @@ pub struct Variable {
 
 impl Variable {
     fn new(id: usize, name: Token) -> Self {
-        Self {
-            id,
-            name,
-        }
+        Self { id, name }
     }
 
     pub fn name(&self) -> &str {
@@ -68,6 +65,10 @@ pub enum Expr {
         value: Box<Expr>,
     },
     String(String),
+    Super {
+        var: Variable,
+        method: Token,
+    },
     This(Variable),
     Unary {
         operator: Token,
@@ -202,7 +203,9 @@ impl<'a> Parser<'a> {
 
         let superclass = match self.match_token(&[Less]) {
             Some(_) => {
-                let name = self.next_assert(Identifier, "Expect superclass name")?.clone();
+                let name = self
+                    .next_assert(Identifier, "Expect superclass name")?
+                    .clone();
                 Some(self.make_var(name))
             }
             None => None,
@@ -564,10 +567,8 @@ impl<'a> Parser<'a> {
     }
 
     // primary → "true" | "false" | "nil" | "this"
-    //         | NUMBER | STRING
-    //         | "fun" functionDecl
-    //         | "(" expression ")"
-    //         | IDENTIFIER ;
+    //         | NUMBER | STRING | IDENTIFIER | "(" expression ")"
+    //         | "super" "." IDENTIFIER ;
     fn primary(&mut self) -> Result<Expr, Error> {
         use TokenKind::*;
 
@@ -588,7 +589,7 @@ impl<'a> Parser<'a> {
                 Identifier => {
                     let var = self.make_var(token.clone());
                     self.next_ok(Expr::Variable(var))
-                },
+                }
                 LeftParen => {
                     self.tokens.next();
 
@@ -600,10 +601,23 @@ impl<'a> Parser<'a> {
                 Nil => self.next_ok(Expr::Nil),
                 Number => self.next_ok(Expr::Number(token.literal_number())),
                 String => self.next_ok(Expr::String(token.literal_string().to_string())),
+                Super => {
+                    let keyword = self.tokens.next().unwrap().clone();
+
+                    self.next_assert(Dot, "Expect '.' after 'super'")?;
+                    let method = self
+                        .next_assert(Identifier, "Expect superclass method name")?
+                        .clone();
+
+                    Ok(Expr::Super {
+                        var: self.make_var(keyword),
+                        method,
+                    })
+                }
                 This => {
                     let var = self.make_var(token.clone());
                     self.next_ok(Expr::This(var))
-                },
+                }
                 True => self.next_ok(Expr::Boolean(true)),
                 _ => Err(Error::new("Unexpected token", token.offset())),
             };

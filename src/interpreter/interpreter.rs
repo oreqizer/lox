@@ -205,6 +205,35 @@ impl Interpreter {
                 Ok(value)
             }
             Expr::String(s) => Ok(Var::Value(Value::String(s.to_string()))),
+            Expr::Super {
+                var: Variable { id, name },
+                method,
+            } => {
+                let depth = self.locals.get(id).unwrap();
+                let superclass =
+                    match Environment::get_at(&self.env, name.literal_identifier(), *depth) {
+                        Ok(Var::Class(c)) => c,
+                        Err(e) => return Err(Error::new(&e, name.offset())),
+                        _ => return Err(Error::new("Expect super to be a class", name.offset())),
+                    };
+
+                let object = match Environment::get_at(&self.env, "this", *depth - 1) {
+                    Ok(Var::Instance(i)) => i,
+                    Err(e) => return Err(Error::new(&e, name.offset())),
+                    _ => {
+                        return Err(Error::new(
+                            "Unexpected value of 'this' in a 'super' call",
+                            name.offset(),
+                        ))
+                    }
+                };
+
+                let method = superclass
+                    .find_method(method.literal_identifier())
+                    .ok_or(Error::new("Undefined property", method.offset()))?;
+
+                Ok(Var::Function(Rc::new(method.bind(&object))))
+            }
             Expr::This(Variable { id, name }) => self.look_up_var(*id, name),
             Expr::Unary { operator, right } => {
                 Ok(Var::Value(self.visit_unary_expr(operator, right)?))
@@ -228,6 +257,14 @@ impl Interpreter {
             None
         };
 
+        if let Some(s) = &superclass {
+            self.env = Rc::new(RefCell::new(Environment::new(&self.env)));
+            self.env
+                .as_ref()
+                .borrow_mut()
+                .define("super", Some(Var::Class(Rc::clone(s))));
+        }
+
         let methods = methods
             .iter()
             .map(|m| {
@@ -249,6 +286,11 @@ impl Interpreter {
                 (name, fun)
             })
             .collect::<HashMap<String, Rc<Function>>>();
+
+        if let Some(_) = &superclass {
+            let wrapped = self.env.borrow().enclosing().unwrap();
+            self.env = wrapped;
+        }
 
         let class = Class::new(name, superclass, methods);
 

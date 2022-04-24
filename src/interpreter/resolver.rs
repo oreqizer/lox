@@ -51,6 +51,7 @@ impl Resolver {
                 self.visit_expr(left)?;
                 self.visit_expr(right)
             }
+            Expr::Boolean(_) => Ok(()),
             Expr::Call { callee, args, .. } => {
                 self.visit_expr(callee)?;
                 for a in args {
@@ -60,14 +61,24 @@ impl Resolver {
             }
             Expr::Get { object, .. } => self.visit_expr(object),
             Expr::Grouping(expr) => self.visit_expr(expr),
+            Expr::Lambda { params, body, .. } => {
+                self.resolve_function(params, body, FunctionType::Function)
+            }
             Expr::Logical { left, right, .. } => {
                 self.visit_expr(left)?;
                 self.visit_expr(right)
             }
+            Expr::Nil => Ok(()),
+            Expr::Number(_) => Ok(()),
             Expr::Set { object, value, .. } => {
                 self.visit_expr(object)?;
                 self.visit_expr(value)
             }
+            Expr::String(_) => Ok(()),
+            Expr::Super{ var: Variable { id, name }, .. } => {
+                self.resolve_local(*id, name);
+                Ok(())
+            },
             Expr::This(Variable { id, name }) => {
                 if self.current_class == ClassType::None {
                     return Err(Error::new(
@@ -81,7 +92,6 @@ impl Resolver {
             }
             Expr::Unary { right, .. } => self.visit_expr(right),
             Expr::Variable(Variable { id, name }) => self.visit_var_expr(*id, name),
-            _ => Ok(()),
         }
     }
 
@@ -158,10 +168,19 @@ impl Resolver {
 
         if let Some(var) = superclass {
             if var.name() == name.literal_identifier() {
-                return Err(Error::new("A class can't inherit from itself", var.offset()));
+                return Err(Error::new(
+                    "A class can't inherit from itself",
+                    var.offset(),
+                ));
             }
 
             self.visit_expr(&Expr::Variable(var.clone()))?;
+
+            self.scope_start();
+            self.scopes
+                .last_mut()
+                .unwrap()
+                .insert("super".to_string(), true);
         }
 
         self.scope_start();
@@ -179,6 +198,10 @@ impl Resolver {
             self.resolve_function(&m.params, &m.body, kind)?;
         }
         self.scope_end();
+
+        if let Some(_) = superclass {
+            self.scope_end();
+        }
 
         self.current_class = enclosing_class;
         Ok(())

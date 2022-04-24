@@ -47,7 +47,7 @@ impl Class {
         self.offset
     }
 
-    fn find_method(&self, name: &str) -> Option<Rc<Function>> {
+    pub fn find_method(&self, name: &str) -> Option<Rc<Function>> {
         self.methods
             .get(name)
             .map(|f| Rc::clone(f))
