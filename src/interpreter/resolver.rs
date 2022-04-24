@@ -18,6 +18,7 @@ enum FunctionType {
 enum ClassType {
     None,
     Class,
+    Subclass,
 }
 
 pub struct Resolver {
@@ -75,10 +76,29 @@ impl Resolver {
                 self.visit_expr(value)
             }
             Expr::String(_) => Ok(()),
-            Expr::Super{ var: Variable { id, name }, .. } => {
+            Expr::Super {
+                var: Variable { id, name },
+                ..
+            } => {
+                match self.current_class {
+                    ClassType::None => {
+                        return Err(Error::new(
+                            "Can't use 'super' outside of a class",
+                            name.offset(),
+                        ))
+                    }
+                    ClassType::Class => {
+                        return Err(Error::new(
+                            "Can't use 'super' in a class without a superclass",
+                            name.offset(),
+                        ))
+                    }
+                    _ => (),
+                };
+
                 self.resolve_local(*id, name);
                 Ok(())
-            },
+            }
             Expr::This(Variable { id, name }) => {
                 if self.current_class == ClassType::None {
                     return Err(Error::new(
@@ -174,6 +194,7 @@ impl Resolver {
                 ));
             }
 
+            self.current_class = ClassType::Subclass;
             self.visit_expr(&Expr::Variable(var.clone()))?;
 
             self.scope_start();

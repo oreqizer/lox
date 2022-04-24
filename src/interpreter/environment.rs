@@ -1,6 +1,10 @@
 use std::{cell::RefCell, collections::HashMap, fmt, rc::Rc};
 
-use super::{function::{Function, Native}, class::{Instance, Class}, value::Value};
+use super::{
+    class::{Class, Instance},
+    function::{Function, Native},
+    value::Value,
+};
 
 #[derive(Clone)]
 pub enum Var {

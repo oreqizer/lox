@@ -1,6 +1,6 @@
-mod function;
 mod class;
 mod environment;
+mod function;
 mod interpreter;
 mod resolver;
 mod value;
