@@ -9,13 +9,13 @@ impl ValueArray {
         Self { values: Vec::new() }
     }
 
-    pub fn write(&mut self, value: Value) -> u8 {
+    pub fn write(&mut self, value: Value) -> usize {
         self.values.push(value);
-        (self.values.len() - 1).try_into().unwrap()
+        self.values.len() - 1
     }
 
-    pub fn read(&self, index: u8) -> Value {
-        *self.values.get(index as usize).unwrap()
+    pub fn read(&self, index: usize) -> Value {
+        *self.values.get(index).unwrap()
     }
 
     pub fn free(&mut self) {

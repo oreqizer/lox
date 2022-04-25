@@ -5,7 +5,7 @@ use crate::value::{ValueArray, Value};
 #[derive(Debug)]
 pub enum OpCode {
     Constant,
-    ConstantIndex(u8),
+    ConstantIndex(usize),
     Return,
 }
 
@@ -22,16 +22,16 @@ impl Chunk {
         }
     }
 
-    pub fn write(&mut self, op: OpCode) -> u8 {
+    pub fn write(&mut self, op: OpCode) -> usize {
         self.code.push(op);
-        (self.code.len() - 1).try_into().unwrap()
+        self.code.len() - 1
     }
 
     pub fn free(&mut self) {
         self.code = Vec::new()
     }
 
-    pub fn add_constant(&mut self, value: Value) -> u8 {
+    pub fn add_constant(&mut self, value: Value) -> usize {
         self.constants.write(value)
     }
 
